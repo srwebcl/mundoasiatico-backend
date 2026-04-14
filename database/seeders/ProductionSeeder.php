@@ -81,8 +81,7 @@ class ProductionSeeder extends Seeder
             'garantia'        => '3 meses',
             'origen'          => 'Certificado',
             'modelos'         => [
-                ['marca' => 'Chery', 'modelo' => 'Tiggo',     'cilindrada' => '2.0', 'year_start' => 2008, 'year_end' => 2013],
-                ['marca' => 'Chery', 'modelo' => 'Tiggo',     'cilindrada' => '1.6', 'year_start' => 2008, 'year_end' => 2013],
+                ['marca' => 'Chery', 'modelo' => 'Tiggo',     'cilindrada' => '1.6/2.0', 'year_start' => 2008, 'year_end' => 2013],
                 ['marca' => 'Chery', 'modelo' => 'New Tiggo', 'cilindrada' => '1.6', 'year_start' => 2008, 'year_end' => 2013],
             ],
         ],
