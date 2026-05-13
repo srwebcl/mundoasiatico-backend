@@ -19,6 +19,7 @@ class RegisterRequest extends FormRequest
             'password' => ['required', 'string', 'min:8', 'confirmed'],
             'phone'    => ['nullable', 'string', 'max:20'],
             'rut'      => ['nullable', 'string', 'max:12', 'unique:users,rut'],
+            'patente'  => ['nullable', 'string', 'max:20'],
         ];
     }
 

@@ -4,10 +4,21 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class CarModel extends Model
 {
     use HasFactory;
+
+    protected static function booted(): void
+    {
+        static::saving(function ($carModel) {
+            if (empty($carModel->slug)) {
+                $baseSlug = Str::slug($carModel->name);
+                $carModel->slug = $baseSlug . '-' . Str::random(5);
+            }
+        });
+    }
 
     protected $fillable = ['name', 'slug', 'brand_id', 'year_start', 'year_end', 'is_active'];
 

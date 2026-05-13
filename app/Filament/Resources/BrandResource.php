@@ -51,6 +51,36 @@ class BrandResource extends Resource
                         ->label('Activa')
                         ->default(true),
                 ])->columns(2),
+
+            Forms\Components\Section::make('Modelos de Auto')
+                ->description('Administra los modelos de vehículos que pertenecen a esta marca. (Ej: Tiggo 2, H6, etc.)')
+                ->schema([
+                    Forms\Components\Repeater::make('carModels')
+                        ->relationship('carModels')
+                        ->label('')
+                        ->schema([
+                            Forms\Components\TextInput::make('name')
+                                ->label('Nombre del Modelo')
+                                ->placeholder('Ej: Tiggo 2')
+                                ->required()
+                                ->maxLength(255),
+                            
+                            Forms\Components\TextInput::make('year_start')
+                                ->label('Año Inicio')
+                                ->numeric()
+                                ->placeholder('Ej: 2018'),
+                                
+                            Forms\Components\TextInput::make('year_end')
+                                ->label('Año Fin')
+                                ->numeric()
+                                ->placeholder('Vacío si es actual'),
+                        ])
+                        ->columns(3)
+                        ->columnSpanFull()
+                        ->addActionLabel('Añadir Otro Modelo')
+                        ->defaultItems(0)
+                        ->collapsible(),
+                ]),
         ]);
     }
 

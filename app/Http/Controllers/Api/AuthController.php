@@ -6,10 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Models\User;
+use App\Mail\WelcomeMail;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -25,8 +29,16 @@ class AuthController extends Controller
             'password' => Hash::make($request->password),
             'phone'    => $request->phone,
             'rut'      => $request->rut,
-            'role'     => 'customer', // Por defecto siempre customer. El admin asigna wholesale.
+            'patente'  => $request->patente,
+            'role'     => 'customer',
         ]);
+
+        // Enviar email de bienvenida
+        try {
+            Mail::to($user->email)->send(new WelcomeMail($user));
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error("Error enviando WelcomeMail: " . $e->getMessage());
+        }
 
         $token = $user->createToken('api-token')->plainTextToken;
 
@@ -100,9 +112,51 @@ class AuthController extends Controller
                 'email'        => $user->email,
                 'phone'        => $user->phone,
                 'rut'          => $user->rut,
+                'patente'      => $user->patente,
                 'role'         => $user->role,
                 'is_wholesale' => $user->isWholesale(),
             ],
         ]);
+    }
+
+    /**
+     * POST /api/auth/forgot-password
+     */
+    public function forgotPassword(Request $request): JsonResponse
+    {
+        $request->validate(['email' => 'required|email']);
+
+        $status = Password::sendResetLink($request->only('email'));
+
+        return $status === Password::RESET_LINK_SENT
+            ? response()->json(['message' => 'Link de recuperación enviado a tu email.'])
+            : response()->json(['message' => 'No pudimos enviar el link. Verifica el email.'], 422);
+    }
+
+    /**
+     * POST /api/auth/reset-password
+     */
+    public function resetPassword(Request $request): JsonResponse
+    {
+        $request->validate([
+            'token'    => 'required',
+            'email'    => 'required|email',
+            'password' => 'required|min:8|confirmed',
+        ]);
+
+        $status = Password::reset(
+            $request->only('email', 'password', 'password_confirmation', 'token'),
+            function ($user, $password) {
+                $user->forceFill([
+                    'password' => Hash::make($password)
+                ])->setRememberToken(Str::random(60));
+
+                $user->save();
+            }
+        );
+
+        return $status === Password::PASSWORD_RESET
+            ? response()->json(['message' => 'Contraseña actualizada correctamente.'])
+            : response()->json(['message' => 'Token inválido o expirado.'], 422);
     }
 }

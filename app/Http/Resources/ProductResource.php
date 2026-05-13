@@ -21,6 +21,7 @@ class ProductResource extends JsonResource
             'slug'            => $this->slug,
             'description'     => $this->description,
             'image'           => $this->image ? asset('storage/' . $this->image) : null,
+            'gallery'         => collect($this->gallery ?? [])->map(fn($path) => asset('storage/' . $path))->toArray(),
             'regular_price'   => $this->regular_price,
             'wholesale_price' => $this->wholesale_price,
             'active_price'    => $isWholesale ? $this->wholesale_price : $this->regular_price,

@@ -15,10 +15,25 @@ class UserResource extends Resource
 {
     protected static ?string $model = User::class;
     protected static ?string $navigationIcon = 'heroicon-o-users';
-    protected static ?string $navigationGroup = 'Gestión';
-    protected static ?int $navigationSort = 1;
-    protected static ?string $modelLabel = 'Usuario';
-    protected static ?string $pluralModelLabel = 'Usuarios';
+    protected static ?string $navigationGroup = 'Marketing';
+    protected static ?int $navigationSort = 3;
+    protected static ?string $modelLabel = 'Cliente (CRM)';
+    protected static ?string $pluralModelLabel = 'Clientes (CRM)';
+
+    public static function getGloballySearchableAttributes(): array
+    {
+        return ['name', 'email', 'rut', 'phone'];
+    }
+
+    public static function getGlobalSearchResultTitle(\Illuminate\Database\Eloquent\Model $record): string
+    {
+        return $record->name . ' (' . $record->email . ')';
+    }
+
+    public static function getEloquentQuery(): \Illuminate\Database\Eloquent\Builder
+    {
+        return parent::getEloquentQuery()->whereIn('role', ['customer', 'wholesale']);
+    }
 
     public static function form(Form $form): Form
     {
@@ -46,6 +61,11 @@ class UserResource extends Resource
                         ->label('RUT')
                         ->maxLength(12)
                         ->unique(User::class, 'rut', ignoreRecord: true),
+
+                    Forms\Components\TextInput::make('patente')
+                        ->label('Patente Vehículo')
+                        ->maxLength(20)
+                        ->placeholder('Ej: ABCD12'),
 
                     Forms\Components\Select::make('role')
                         ->label('Rol del Usuario')
@@ -88,6 +108,12 @@ class UserResource extends Resource
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
 
+                Tables\Columns\TextColumn::make('patente')
+                    ->label('Patente')
+                    ->searchable()
+                    ->badge()
+                    ->color('info'),
+
                 Tables\Columns\TextColumn::make('role')
                     ->label('Rol')
                     ->badge()
@@ -103,10 +129,16 @@ class UserResource extends Resource
                     }),
 
                 Tables\Columns\TextColumn::make('orders_count')
-                    ->label('Pedidos')
+                    ->label('N° Compras')
                     ->counts('orders')
                     ->badge()
                     ->color('primary'),
+
+                Tables\Columns\TextColumn::make('total_spent')
+                    ->label('Total Gastado')
+                    ->getStateUsing(fn (\App\Models\User $record) => '$' . number_format($record->orders()->where('status', 'paid')->sum('total_amount'), 0, ',', '.'))
+                    ->weight('bold')
+                    ->color('success'),
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Registrado')

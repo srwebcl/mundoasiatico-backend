@@ -23,6 +23,9 @@ class Product extends Model
         'is_featured',
         'category_id',
         'brand_id',
+        'gallery',
+        'meta_title',
+        'meta_description',
     ];
 
     protected function casts(): array
@@ -33,6 +36,7 @@ class Product extends Model
             'stock'           => 'integer',
             'is_active'       => 'boolean',
             'is_featured'     => 'boolean',
+            'gallery'         => 'array',
         ];
     }
 

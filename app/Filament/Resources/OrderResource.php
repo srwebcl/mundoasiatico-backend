@@ -16,12 +16,22 @@ class OrderResource extends Resource
 {
     protected static ?string $model = Order::class;
     protected static ?string $navigationIcon = 'heroicon-o-shopping-bag';
-    protected static ?string $navigationGroup = 'Gestión';
-    protected static ?int $navigationSort = 2;
+    protected static ?string $navigationGroup = 'Ventas';
+    protected static ?int $navigationSort = 1;
     protected static ?string $modelLabel = 'Pedido';
     protected static ?string $pluralModelLabel = 'Pedidos';
 
     // ── Solo se puede cambiar el estado — el form es mínimo ──────────────────
+
+    public static function getNavigationBadge(): ?string
+    {
+        return static::getModel()::where('status', 'pending')->count() ?: null;
+    }
+
+    public static function getNavigationBadgeColor(): ?string
+    {
+        return 'warning';
+    }
 
     public static function form(Form $form): Form
     {
@@ -31,14 +41,27 @@ class OrderResource extends Resource
                 ->schema([
                     Forms\Components\Select::make('status')
                         ->label('Estado')
-                        ->options([
-                            'pending'   => '⏳ Pendiente',
-                            'paid'      => '✅ Pagado',
-                            'failed'    => '❌ Fallido',
-                            'shipped'   => '🚚 Enviado',
-                            'cancelled' => '🚫 Cancelado',
-                        ])
+                        ->options(Order::STATUSES)
                         ->required(),
+
+                    Forms\Components\Group::make([
+                        Forms\Components\Select::make('shipping_carrier')
+                            ->label('Transportista')
+                            ->options(Order::CARRIERS)
+                            ->nullable(),
+
+                        Forms\Components\TextInput::make('tracking_number')
+                            ->label('N° de Seguimiento / Guía')
+                            ->maxLength(100),
+
+                        Forms\Components\DateTimePicker::make('shipped_at')
+                            ->label('Fecha de Despacho'),
+                    ])->columns(3)->visible(fn (Forms\Get $get) => $get('status') === Order::STATUS_SHIPPED),
+
+                    Forms\Components\Textarea::make('admin_notes')
+                        ->label('Notas Internas (Admin)')
+                        ->rows(2)
+                        ->columnSpanFull(),
                 ])->columns(1),
         ]);
     }
@@ -104,6 +127,29 @@ class OrderResource extends Resource
                         ->dateTime('d/m/Y H:i'),
                 ])->columns(2),
 
+            Infolists\Components\Section::make('Seguimiento y Logística')
+                ->visible(fn ($record) => $record->status === Order::STATUS_SHIPPED)
+                ->schema([
+                    Infolists\Components\TextEntry::make('shipping_carrier')
+                        ->label('Transportista')
+                        ->formatStateUsing(fn ($state) => Order::CARRIERS[$state] ?? $state),
+                    Infolists\Components\TextEntry::make('tracking_number')
+                        ->label('N° de Seguimiento')
+                        ->copyable()
+                        ->weight('bold'),
+                    Infolists\Components\TextEntry::make('shipped_at')
+                        ->label('Fecha Despacho')
+                        ->dateTime('d/m/Y H:i'),
+                ])->columns(3),
+
+            Infolists\Components\Section::make('Notas Administrador')
+                ->visible(fn ($record) => ! empty($record->admin_notes))
+                ->schema([
+                    Infolists\Components\TextEntry::make('admin_notes')
+                        ->label('')
+                        ->columnSpanFull(),
+                ]),
+
             Infolists\Components\Section::make('Transbank')
                 ->schema([
                     Infolists\Components\TextEntry::make('transbank_token')
@@ -165,20 +211,24 @@ class OrderResource extends Resource
                     ->label('Estado')
                     ->badge()
                     ->color(fn (string $state) => match ($state) {
-                        'paid'      => 'success',
-                        'pending'   => 'warning',
-                        'shipped'   => 'info',
-                        'failed'    => 'danger',
-                        'cancelled' => 'gray',
-                        default     => 'gray',
+                        'paid'        => 'success',
+                        'pending'     => 'warning',
+                        'processing'  => 'info',
+                        'shipped'     => 'info',
+                        'delivered'   => 'success',
+                        'failed'      => 'danger',
+                        'cancelled'   => 'gray',
+                        default       => 'gray',
                     })
                     ->formatStateUsing(fn (string $state) => match ($state) {
-                        'paid'      => '✅ Pagado',
-                        'pending'   => '⏳ Pendiente',
-                        'shipped'   => '🚚 Enviado',
-                        'failed'    => '❌ Fallido',
-                        'cancelled' => '🚫 Cancelado',
-                        default     => $state,
+                        'paid'        => 'Pagado',
+                        'pending'     => 'Pendiente',
+                        'processing'  => 'En Preparación',
+                        'shipped'     => 'Despachado',
+                        'delivered'   => 'Entregado',
+                        'failed'      => 'Fallido',
+                        'cancelled'   => 'Cancelado',
+                        default       => ucfirst($state),
                     }),
 
                 Tables\Columns\TextColumn::make('total_amount')
@@ -226,6 +276,13 @@ class OrderResource extends Resource
                 Tables\Actions\EditAction::make()->label('Cambiar Estado'),
             ])
             ->bulkActions([]); // Sin bulk actions en pedidos
+    }
+
+    public static function getWidgets(): array
+    {
+        return [
+            OrderResource\Widgets\OrderStats::class,
+        ];
     }
 
     public static function getPages(): array

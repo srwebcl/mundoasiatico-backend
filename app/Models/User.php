@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use Filament\Models\Contracts\FilamentUser;
+use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-class User extends Authenticatable
+class User extends Authenticatable implements FilamentUser
 {
     use HasApiTokens, HasFactory, Notifiable;
 
@@ -19,6 +21,7 @@ class User extends Authenticatable
         'email',
         'phone',
         'rut',
+        'patente',
         'password',
         'role',
     ];
@@ -56,6 +59,14 @@ class User extends Authenticatable
         return $this->role === 'wholesale';
     }
 
+    /**
+     * Requerido por FilamentUser para acceder al panel admin.
+     */
+    public function canAccessPanel(Panel $panel): bool
+    {
+        return $this->isAdmin();
+    }
+
     // =========================================================================
     // Relaciones
     // =========================================================================
@@ -63,5 +74,10 @@ class User extends Authenticatable
     public function orders()
     {
         return $this->hasMany(Order::class);
+    }
+
+    public function addresses()
+    {
+        return $this->hasMany(UserAddress::class);
     }
 }
