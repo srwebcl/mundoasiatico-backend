@@ -88,19 +88,30 @@ if (!function_exists('exec')) {
     exit;
 }
 
+// ── Variables de entorno para Composer ───────────────────────────────────────
+$homeDir      = '/home2/luisyane';
+$composerHome = '/home2/luisyane/.composer';
+$phpBin       = trim(shell_exec('which php') ?: 'php');
+$envPrefix    = "HOME={$homeDir} COMPOSER_HOME={$composerHome}";
+
+titulo('Entorno detectado');
+echo "PHP binario: {$phpBin}<br>\n";
+echo "HOME: {$homeDir}<br>\n";
+echo "COMPOSER_HOME: {$composerHome}<br>\n";
+
 // ── Paso 1: Descargar Composer ───────────────────────────────────────────────
 titulo('Paso 1 — Descargar Composer');
 if (file_exists($projectRoot . '/composer.phar')) {
     echo "composer.phar ya existe, saltando descarga.<br>\n";
 } else {
     runCmd("cd {$projectRoot} && curl -sS https://getcomposer.org/installer -o composer-setup.php");
-    runCmd("cd {$projectRoot} && php composer-setup.php");
+    runCmd("cd {$projectRoot} && {$envPrefix} {$phpBin} composer-setup.php");
     runCmd("cd {$projectRoot} && rm -f composer-setup.php");
 }
 
 // ── Paso 2: Instalar dependencias ────────────────────────────────────────────
 titulo('Paso 2 — Composer Install (puede tardar 2-3 minutos)');
-runCmd("cd {$projectRoot} && php composer.phar install --no-dev --optimize-autoloader --no-interaction");
+runCmd("cd {$projectRoot} && {$envPrefix} {$phpBin} composer.phar install --no-dev --optimize-autoloader --no-interaction");
 
 // ── Paso 3: Migraciones ──────────────────────────────────────────────────────
 titulo('Paso 3 — Migraciones de base de datos');
