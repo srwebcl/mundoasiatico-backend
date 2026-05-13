@@ -11,8 +11,8 @@
         "laravel/sanctum": "^4.3",
         "laravel/tinker": "^2.9",
         "resend/resend-php": "^1.3",
-        "symfony/brevo-mailer": "^8.0",
-        "symfony/resend-mailer": "^8.0",
+        "symfony/brevo-mailer": "^7.0",
+        "symfony/resend-mailer": "^7.0",
         "transbank/transbank-sdk": "^5.1"
     },
     "require-dev": {
@@ -67,6 +67,9 @@
         "allow-plugins": {
             "pestphp/pest-plugin": true,
             "php-http/discovery": true
+        },
+        "platform": {
+            "php": "8.3"
         }
     },
     "minimum-stability": "stable",
