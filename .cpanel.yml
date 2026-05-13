@@ -1,7 +1,7 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/<TU_USUARIO_CPANEL>/repositories/mundoasiatico-backend
+    - export DEPLOYPATH=/home2/luisyane/api.mundoasiatico.cl
     - /usr/local/bin/composer install --no-dev --optimize-autoloader --no-interaction
     - /usr/local/bin/php artisan migrate --force
     - /usr/local/bin/php artisan config:cache
