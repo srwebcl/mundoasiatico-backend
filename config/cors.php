@@ -16,8 +16,10 @@ return [
 
     'allowed_origins' => [
         env('FRONTEND_URL', 'https://mundoasiatico.cl'),
-        'https://mundoasiatico.vercel.app',     // Preview de Vercel
-        'http://localhost:3000',                 // Desarrollo local Next.js
+        'https://mundoasiatico.cl',                  // Sin www
+        'https://www.mundoasiatico.cl',              // Con www (Vercel)
+        'https://mundoasiatico.vercel.app',          // Preview de Vercel
+        'http://localhost:3000',                      // Desarrollo local Next.js
         'http://localhost:3001',
     ],
 
