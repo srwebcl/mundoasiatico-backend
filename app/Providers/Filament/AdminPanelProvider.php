@@ -35,9 +35,9 @@ class AdminPanelProvider extends PanelProvider
                 'gray'    => Color::Zinc,
             ])
             ->brandName('Mundo Asiático')
-            ->brandLogo(fn () => config('app.frontend_url') . '/logo-mundo-asiatico.webp')
+            ->brandLogo(asset('logo-mundo-asiatico.webp'))
             ->brandLogoHeight('3rem')
-            ->favicon(fn () => config('app.frontend_url') . '/favicon.ico')
+            ->favicon(asset('favicon.ico'))
             ->font('Inter', provider: \Filament\FontProviders\GoogleFontProvider::class)
             ->sidebarCollapsibleOnDesktop()
             ->maxContentWidth(MaxWidth::Full)
