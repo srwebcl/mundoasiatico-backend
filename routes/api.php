@@ -75,6 +75,29 @@ Route::get('/settings/promo-bar', function () {
 // Capturar Lead de WhatsApp a Brevo
 Route::post('/settings/whatsapp-lead', [\App\Http\Controllers\Api\WhatsAppLeadController::class, 'store']);
 
+Route::get('/settings/whatsapp', function () {
+    $setting = \App\Models\Setting::where('key', 'whatsapp_number')->first();
+    return response()->json([
+        'whatsapp_number' => $setting ? $setting->value : '56983050454'
+    ]);
+});
+
+Route::get('/news', function () {
+    $news = \App\Models\News::where('is_active', true)
+        ->orderBy('created_at', 'desc')
+        ->get();
+    
+    // Add full URL to image if relative
+    $news->transform(function ($item) {
+        if ($item->image && !str_starts_with($item->image, 'http')) {
+            $item->image = url('storage/' . $item->image);
+        }
+        return $item;
+    });
+
+    return response()->json($news);
+});
+
 // ── Rutas PROTEGIDAS (requieren token Sanctum) ────────────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
 
