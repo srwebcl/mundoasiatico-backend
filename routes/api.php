@@ -90,11 +90,24 @@ Route::get('/news', function () {
     // Add full URL to image if relative
     $news->transform(function ($item) {
         if ($item->image && !str_starts_with($item->image, 'http')) {
+            // Fix: ensure the frontend points directly to the correct domain if env is set, or relative
             $item->image = url('storage/' . $item->image);
         }
         return $item;
     });
 
+    return response()->json($news);
+});
+
+Route::get('/news/{slug}', function ($slug) {
+    $news = \App\Models\News::where('slug', $slug)
+        ->where('is_active', true)
+        ->firstOrFail();
+    
+    if ($news->image && !str_starts_with($news->image, 'http')) {
+        $news->image = url('storage/' . $news->image);
+    }
+    
     return response()->json($news);
 });
 

@@ -15,9 +15,17 @@ Route::get('/run-setup', function () {
 
         // 2. Limpiar Caché
         \Illuminate\Support\Facades\Artisan::call('optimize:clear');
+        \Illuminate\Support\Facades\Artisan::call('filament:clear-cached-components');
         $optimizeOutput = \Illuminate\Support\Facades\Artisan::output();
 
-        // 3. Crear registro de WhatsApp inicial
+        // 3. Restaurar symlink de storage (para que se vean las imágenes)
+        try {
+            \Illuminate\Support\Facades\Artisan::call('storage:link');
+        } catch (\Exception $e) {
+            // Silencioso por si ya existe o hay permisos
+        }
+
+        // 4. Crear registro de WhatsApp inicial
         \App\Models\Setting::firstOrCreate(
             ['key' => 'whatsapp_number'],
             ['label' => 'Número de WhatsApp Front', 'value' => '56971602029', 'type' => 'text']
@@ -28,6 +36,7 @@ Route::get('/run-setup', function () {
             'message' => '¡Configuración completada con éxito!',
             'migrate_output' => $migrateOutput,
             'optimize_output' => $optimizeOutput,
+            'symlink_msg' => 'Se intentó crear/restaurar el symlink de storage.',
         ]);
     } catch (\Exception $e) {
         return response()->json([
