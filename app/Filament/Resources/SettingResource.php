@@ -17,11 +17,10 @@ class SettingResource extends Resource
 {
     protected static ?string $model = Setting::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-cog-8-tooth';
+    protected static ?string $navigationIcon = 'heroicon-o-chat-bubble-left-ellipsis';
     protected static ?string $navigationLabel = 'WhatsApp y Ajustes';
     protected static ?string $modelLabel = 'Ajuste';
-    protected static ?string $pluralModelLabel = 'Ajustes Generales';
-    protected static ?string $navigationGroup = 'Configuración';
+    protected static ?string $pluralModelLabel = 'WhatsApp y Ajustes Generales';
 
     public static function form(Form $form): Form
     {
