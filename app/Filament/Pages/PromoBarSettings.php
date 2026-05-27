@@ -20,8 +20,8 @@ class PromoBarSettings extends Page
     protected static ?string $navigationIcon = 'heroicon-o-megaphone';
     protected static ?string $navigationGroup = 'Marketing';
     protected static ?int $navigationSort = 5;
-    protected static ?string $title = 'Banner Superior';
-    protected static ?string $navigationLabel = 'Banner Superior';
+    protected static ?string $title = 'Barra Superior';
+    protected static ?string $navigationLabel = 'Barra Superior';
 
     protected static string $view = 'filament.pages.promo-bar-settings';
 

@@ -52,6 +52,18 @@ Route::get('/settings/popups', function () {
     return \App\Models\Popup::where('is_active', true)->get();
 });
 
+// Hero Slides
+Route::get('/hero-slides', function () {
+    return \App\Models\HeroSlide::where('is_active', true)
+        ->orderBy('order')
+        ->get()
+        ->map(function ($slide) {
+            // Ensure absolute URL if storage is used
+            $slide->image_url = $slide->image_path ? url('storage/' . $slide->image_path) : null;
+            return $slide;
+        });
+});
+
 // Barra Promocional y Ajustes Globales
 Route::get('/settings/promo-bar', function () {
     $settings = \App\Models\Setting::where('key', 'like', 'promo_bar_%')

@@ -23,6 +23,15 @@ class SettingResource extends Resource
     protected static ?string $pluralModelLabel = 'Ajustes';
     protected static ?string $navigationGroup = 'Configuración';
 
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()
+            ->where('key', 'not like', 'promo_bar_%')
+            ->where('key', 'not like', 'whatsapp_%')
+            ->where('key', 'not like', 'marketing_%')
+            ->where('key', 'not like', 'popup_%');
+    }
+
     public static function form(Form $form): Form
     {
         return $form
