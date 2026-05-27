@@ -22,6 +22,7 @@ class SettingResource extends Resource
     protected static ?string $modelLabel = 'Ajuste';
     protected static ?string $pluralModelLabel = 'Ajustes';
     protected static ?string $navigationGroup = 'Configuración';
+    protected static bool $shouldRegisterNavigation = false;
 
     public static function getEloquentQuery(): Builder
     {

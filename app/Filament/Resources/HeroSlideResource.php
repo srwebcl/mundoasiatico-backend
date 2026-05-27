@@ -54,9 +54,38 @@ class HeroSlideResource extends Resource
                         Forms\Components\TextInput::make('cta_text')
                             ->label('Texto del Botón (ej. VER FRENOS)')
                             ->maxLength(255),
-                        Forms\Components\TextInput::make('cta_link')
-                            ->label('Enlace del Botón (ej. /catalogo?categoria=frenos)')
-                            ->maxLength(255),
+                        Forms\Components\Select::make('cta_link')
+                            ->label('Enlace del Botón')
+                            ->options(function () {
+                                $options = [
+                                    'Páginas Generales' => [
+                                        '/catalogo' => 'Catálogo Completo',
+                                    ],
+                                ];
+                                
+                                $categories = \App\Models\Category::where('is_active', true)
+                                    ->pluck('name', 'slug')
+                                    ->mapWithKeys(fn($name, $slug) => ["/catalogo?categoria={$slug}" => "Categoría: {$name}"])
+                                    ->toArray();
+                                
+                                if (!empty($categories)) {
+                                    $options['Categorías'] = $categories;
+                                }
+                                
+                                $brands = \App\Models\Brand::where('is_active', true)
+                                    ->pluck('name', 'slug')
+                                    ->mapWithKeys(fn($name, $slug) => ["/catalogo?marca={$slug}" => "Marca: {$name}"])
+                                    ->toArray();
+                                    
+                                if (!empty($brands)) {
+                                    $options['Marcas'] = $brands;
+                                }
+                                
+                                return $options;
+                            })
+                            ->searchable()
+                            ->native(false)
+                            ->columnSpan(1),
                     ])->columns(2),
 
                 Forms\Components\Section::make('Configuración')
