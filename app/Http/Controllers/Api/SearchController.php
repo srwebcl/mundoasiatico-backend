@@ -65,9 +65,15 @@ class SearchController extends Controller
             ->where(function ($q) use ($likeTerm) {
                 $q->where('name', 'LIKE', $likeTerm)
                   ->orWhere('sku', 'LIKE', $likeTerm)
-                  ->orWhere('description', 'LIKE', $likeTerm);
+                  ->orWhere('description', 'LIKE', $likeTerm)
+                  ->orWhereHas('carModels', function ($q2) use ($likeTerm) {
+                      $q2->where('name', 'LIKE', $likeTerm)
+                         ->orWhereHas('brand', function ($q3) use ($likeTerm) {
+                             $q3->where('name', 'LIKE', $likeTerm);
+                         });
+                  });
             })
-            ->with(['category', 'brand'])
+            ->with(['category', 'brand', 'carModels.brand'])
             ->take(6)
             ->get();
 

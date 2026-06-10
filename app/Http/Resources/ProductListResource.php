@@ -37,6 +37,12 @@ class ProductListResource extends JsonResource
                 'name' => $this->brand?->name,
                 'slug' => $this->brand?->slug,
             ],
+            'compatible_models' => $this->whenLoaded('carModels', function () {
+                return $this->carModels->map(function ($car) {
+                    $brandName = $car->brand ? $car->brand->name : '';
+                    return trim($brandName . ' ' . $car->name);
+                })->values()->all();
+            }),
         ];
     }
 }
