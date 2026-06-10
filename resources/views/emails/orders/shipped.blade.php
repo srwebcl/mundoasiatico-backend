@@ -30,7 +30,7 @@ Rastrear mi envío
 ---
 
 ¿Algún problema con tu envío? Contáctanos:
-- **WhatsApp:** +569 7160 2029
+- **WhatsApp:** +56 9 4173 7497
 - **Email:** ventas@mundoasiatico.cl
 
 Gracias por tu preferencia,

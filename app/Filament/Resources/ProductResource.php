@@ -293,11 +293,48 @@ class ProductResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\DeleteAction::make()
+                    ->before(function ($record, Tables\Actions\DeleteAction $action) {
+                        if ($record->orderItems()->exists()) {
+                            \Filament\Notifications\Notification::make()
+                                ->danger()
+                                ->title('No se puede eliminar')
+                                ->body('Este repuesto tiene pedidos asociados. Desactiva la opción "Publicado" para ocultarlo de la tienda.')
+                                ->send();
+                            $action->cancel();
+                        }
+                    }),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+                    Tables\Actions\DeleteBulkAction::make()
+                        ->action(function (\Illuminate\Database\Eloquent\Collection $records, Tables\Actions\DeleteBulkAction $action) {
+                            $recordsWithOrders = 0;
+                            $deletedCount = 0;
+                            
+                            foreach ($records as $record) {
+                                if ($record->orderItems()->exists()) {
+                                    $recordsWithOrders++;
+                                } else {
+                                    $record->delete();
+                                    $deletedCount++;
+                                }
+                            }
+                            
+                            if ($recordsWithOrders > 0) {
+                                \Filament\Notifications\Notification::make()
+                                    ->warning()
+                                    ->title('Eliminación parcial')
+                                    ->body("Se eliminaron {$deletedCount} repuestos. {$recordsWithOrders} no se eliminaron porque tienen pedidos asociados.")
+                                    ->send();
+                            } else {
+                                \Filament\Notifications\Notification::make()
+                                    ->success()
+                                    ->title('Eliminados')
+                                    ->body("Se eliminaron {$deletedCount} repuestos correctamente.")
+                                    ->send();
+                            }
+                        }),
                 ]),
             ])
             ->defaultSort('created_at', 'desc');

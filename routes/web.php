@@ -28,7 +28,7 @@ Route::get('/run-setup', function () {
         // 4. Crear registro de WhatsApp inicial
         \App\Models\Setting::firstOrCreate(
             ['key' => 'whatsapp_number'],
-            ['label' => 'Número de WhatsApp Front', 'value' => '56971602029', 'type' => 'text']
+            ['label' => 'Número de WhatsApp Front', 'value' => '56941737497', 'type' => 'text']
         );
 
         return response()->json([

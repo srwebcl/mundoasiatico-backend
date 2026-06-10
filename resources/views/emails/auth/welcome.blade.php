@@ -15,7 +15,7 @@ Ver Catálogo
 
 ---
 
-Si tienes alguna duda, escríbenos por WhatsApp al **+569 7160 2029** o a **ventas@mundoasiatico.cl**.
+Si tienes alguna duda, escríbenos por WhatsApp al **+56 9 4173 7497** o a **ventas@mundoasiatico.cl**.
 
 ¡Muchas gracias por registrarte!
 

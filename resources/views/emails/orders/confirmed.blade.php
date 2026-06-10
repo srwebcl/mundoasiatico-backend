@@ -44,7 +44,7 @@ Listo en máx. 3 días hábiles.
 
 ---
 
-¿Tienes alguna duda? Escríbenos por WhatsApp al **+569 7160 2029** o responde este correo.
+¿Tienes alguna duda? Escríbenos por WhatsApp al **+56 9 4173 7497** o responde este correo.
 
 @component('mail::button', ['url' => config('app.frontend_url', 'https://mundoasiatico.cl') . '/mi-cuenta/ordenes', 'color' => 'red'])
 Ver mis pedidos

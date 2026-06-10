@@ -28,7 +28,7 @@ class ManageWhatsApp extends Page implements HasForms
     {
         $whatsapp = Setting::firstOrCreate(
             ['key' => 'whatsapp_number'],
-            ['label' => 'Número de WhatsApp Front', 'value' => '56971602029', 'type' => 'text']
+            ['label' => 'Número de WhatsApp Front', 'value' => '56941737497', 'type' => 'text']
         );
         $this->form->fill([
             'number' => $whatsapp->value,
