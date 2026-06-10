@@ -280,6 +280,8 @@ class ProductResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                Tables\Filters\TrashedFilter::make(),
+                
                 Tables\Filters\SelectFilter::make('category_id')
                     ->label('Categoría')
                     ->relationship('category', 'name'),
@@ -293,13 +295,15 @@ class ProductResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make()
-                    ->before(function ($record, Tables\Actions\DeleteAction $action) {
+                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\RestoreAction::make(),
+                Tables\Actions\ForceDeleteAction::make()
+                    ->before(function ($record, Tables\Actions\ForceDeleteAction $action) {
                         if ($record->orderItems()->exists()) {
                             \Filament\Notifications\Notification::make()
                                 ->danger()
-                                ->title('No se puede eliminar')
-                                ->body('Este repuesto tiene pedidos asociados. Desactiva la opción "Publicado" para ocultarlo de la tienda.')
+                                ->title('Error al eliminar permanentemente')
+                                ->body('Este repuesto tiene pedidos asociados. Solo puedes enviarlo a la papelera (Eliminar normal).')
                                 ->send();
                             $action->cancel();
                         }
@@ -307,8 +311,10 @@ class ProductResource extends Resource
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make()
-                        ->action(function (\Illuminate\Database\Eloquent\Collection $records, Tables\Actions\DeleteBulkAction $action) {
+                    Tables\Actions\DeleteBulkAction::make(),
+                    Tables\Actions\RestoreBulkAction::make(),
+                    Tables\Actions\ForceDeleteBulkAction::make()
+                        ->action(function (\Illuminate\Database\Eloquent\Collection $records, Tables\Actions\ForceDeleteBulkAction $action) {
                             $recordsWithOrders = 0;
                             $deletedCount = 0;
                             
@@ -316,7 +322,7 @@ class ProductResource extends Resource
                                 if ($record->orderItems()->exists()) {
                                     $recordsWithOrders++;
                                 } else {
-                                    $record->delete();
+                                    $record->forceDelete();
                                     $deletedCount++;
                                 }
                             }
@@ -324,14 +330,14 @@ class ProductResource extends Resource
                             if ($recordsWithOrders > 0) {
                                 \Filament\Notifications\Notification::make()
                                     ->warning()
-                                    ->title('Eliminación parcial')
-                                    ->body("Se eliminaron {$deletedCount} repuestos. {$recordsWithOrders} no se eliminaron porque tienen pedidos asociados.")
+                                    ->title('Eliminación permanente parcial')
+                                    ->body("Se eliminaron {$deletedCount} repuestos definitivamente. {$recordsWithOrders} no se eliminaron porque tienen pedidos asociados.")
                                     ->send();
                             } else {
                                 \Filament\Notifications\Notification::make()
                                     ->success()
-                                    ->title('Eliminados')
-                                    ->body("Se eliminaron {$deletedCount} repuestos correctamente.")
+                                    ->title('Eliminados permanentemente')
+                                    ->body("Se eliminaron {$deletedCount} repuestos definitivamente.")
                                     ->send();
                             }
                         }),

@@ -271,11 +271,15 @@ class OrderResource extends Resource
                     ]),
             ])
             ->actions([
-                // Solo ver y editar el estado — sin delete
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make()->label('Cambiar Estado'),
+                Tables\Actions\DeleteAction::make(),
             ])
-            ->bulkActions([]); // Sin bulk actions en pedidos
+            ->bulkActions([
+                Tables\Actions\BulkActionGroup::make([
+                    Tables\Actions\DeleteBulkAction::make(),
+                ]),
+            ]);
     }
 
     public static function getWidgets(): array

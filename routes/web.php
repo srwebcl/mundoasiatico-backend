@@ -45,3 +45,13 @@ Route::get('/run-setup', function () {
         ], 500);
     }
 });
+
+// Ruta temporal para ejecutar migraciones en producción (cPanel) sin acceso a terminal
+Route::get('/run-migrations-secreto-123', function () {
+    try {
+        \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
+        return 'Migraciones ejecutadas correctamente. Resultado:<br><pre>' . \Illuminate\Support\Facades\Artisan::output() . '</pre>';
+    } catch (\Exception $e) {
+        return 'Error ejecutando migraciones:<br><pre>' . $e->getMessage() . '</pre>';
+    }
+});
