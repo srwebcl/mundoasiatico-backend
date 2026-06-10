@@ -21,6 +21,7 @@ use Illuminate\Support\Facades\Route;
 // ── Rutas PÚBLICAS ────────────────────────────────────────────────────────────
 
 // Catálogo
+Route::get('/search/omnibar',   [\App\Http\Controllers\Api\SearchController::class, 'omnibar']);
 Route::get('/products',         [ProductController::class,  'index']);
 Route::get('/products/{slug}',  [ProductController::class,  'show']);
 Route::get('/categories',       [CategoryController::class, 'index']);
