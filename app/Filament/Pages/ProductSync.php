@@ -294,11 +294,19 @@ class ProductSync extends Page implements HasForms
         $processed = 0;
         $notFound = 0;
         
-        foreach ($data['images'] as $tempPath) {
-            $absolutePath = storage_path('app/public/' . $tempPath);
+        foreach ($data['images'] as $tempFile) {
+            if (is_string($tempFile)) {
+                $absolutePath = storage_path('app/public/' . $tempFile);
+                $filename = basename($tempFile);
+            } else if ($tempFile instanceof \Livewire\Features\SupportFileUploads\TemporaryUploadedFile || current(class_implements($tempFile)) === 'Illuminate\Http\UploadedFile') {
+                $absolutePath = $tempFile->getRealPath();
+                $filename = $tempFile->getClientOriginalName();
+            } else {
+                continue;
+            }
+
             if (!file_exists($absolutePath)) continue;
             
-            $filename = basename($tempPath);
             $nameWithoutExt = pathinfo($filename, PATHINFO_FILENAME);
             
             $isGallery = false;
@@ -321,7 +329,7 @@ class ProductSync extends Page implements HasForms
             $product = Product::where('sku', $sku)->first();
             if (!$product) {
                 $notFound++;
-                unlink($absolutePath); // Limpiar igual
+                // No borramos el archivo si es de Livewire TMP por si acaso
                 continue;
             }
             
@@ -355,8 +363,6 @@ class ProductSync extends Page implements HasForms
                 
                 $processed++;
                 
-                // Eliminar el archivo original temporal pesado
-                unlink($absolutePath);
             } catch (\Exception $e) {
                 // Si falla procesar una foto, continuar con las demás
                 continue;
