@@ -179,21 +179,29 @@ class ProductSync extends Page implements HasForms
                 }
 
                 // 5. Crear o Actualizar Producto
-                $product = Product::updateOrCreate(
-                    ['sku' => $sku],
-                    [
-                        'name' => $productData['producto'] ?: 'Sin nombre',
-                        'slug' => \Illuminate\Support\Str::slug($productData['producto'] ?: $sku),
-                        'description' => trim($finalDescription),
-                        'regular_price' => $regularPrice,
-                        'wholesale_price' => $wholesalePrice,
-                        'stock' => $stock,
-                        'brand_id' => $brandId,
-                        'category_id' => $catId,
-                    ]
-                );
+                $productAttributes = [
+                    'name' => $productData['producto'] ?: 'Sin nombre',
+                    'slug' => \Illuminate\Support\Str::slug(($productData['producto'] ?: 'producto') . '-' . $sku),
+                    'description' => trim($finalDescription),
+                    'regular_price' => $regularPrice,
+                    'wholesale_price' => $wholesalePrice,
+                    'stock' => $stock,
+                    'brand_id' => $brandId,
+                    'category_id' => $catId,
+                ];
 
-                // 5. Vincular Modelos Compatibles
+                $product = Product::withTrashed()->where('sku', $sku)->first();
+                
+                if ($product) {
+                    $product->update($productAttributes);
+                    if ($product->trashed()) {
+                        $product->restore();
+                    }
+                } else {
+                    $product = Product::create(array_merge(['sku' => $sku], $productAttributes));
+                }
+
+                // 6. Vincular Modelos Compatibles
                 $carModelIdsToSync = [];
                 foreach ($productData['modelos'] as $mod) {
                     // Buscar o crear la Marca de Auto (Chery, Great Wall, etc)
