@@ -283,11 +283,9 @@ class ProductSync extends Page implements HasForms
             Notification::make()->title('No subiste ninguna imagen.')->warning()->send();
             return;
         }
-        
-        try {
-            $manager = new ImageManager(new Driver());
-        } catch (\Exception $e) {
-            Notification::make()->title('Falta configurar driver GD o librería Intervention Image.')->danger()->send();
+
+        if (!function_exists('imagewebp')) {
+            Notification::make()->title('Tu servidor (cPanel) no tiene activa la extensión PHP GD (imagewebp).')->danger()->send();
             return;
         }
 
@@ -298,7 +296,7 @@ class ProductSync extends Page implements HasForms
             if (is_string($tempFile)) {
                 $absolutePath = storage_path('app/public/' . $tempFile);
                 $filename = basename($tempFile);
-            } else if ($tempFile instanceof \Livewire\Features\SupportFileUploads\TemporaryUploadedFile || current(class_implements($tempFile)) === 'Illuminate\Http\UploadedFile') {
+            } else if (is_object($tempFile) && method_exists($tempFile, 'getRealPath')) {
                 $absolutePath = $tempFile->getRealPath();
                 $filename = $tempFile->getClientOriginalName();
             } else {
@@ -314,12 +312,10 @@ class ProductSync extends Page implements HasForms
             
             // Verificar si es una imagen de galería (ej. SKU_1)
             if (str_contains($nameWithoutExt, '_')) {
-                // Separamos por el último guion bajo
                 $parts = explode('_', $nameWithoutExt);
                 $suffix = array_pop($parts);
                 $potentialSku = implode('_', $parts);
                 
-                // Verificamos si existe un producto con el SKU antes del guion bajo
                 if (Product::where('sku', $potentialSku)->exists()) {
                     $sku = $potentialSku;
                     $isGallery = true;
@@ -329,20 +325,54 @@ class ProductSync extends Page implements HasForms
             $product = Product::where('sku', $sku)->first();
             if (!$product) {
                 $notFound++;
-                // No borramos el archivo si es de Livewire TMP por si acaso
                 continue;
             }
             
             try {
-                $image = $manager->read($absolutePath);
-                
-                // Escalar a máximo 1200px de ancho si es muy grande
-                if ($image->width() > 1200) {
-                    $image->scale(width: 1200);
+                // PROCESAMIENTO NATIVO CON PHP GD (Sin librerías externas)
+                $info = @getimagesize($absolutePath);
+                if (!$info) continue;
+
+                $mime = $info['mime'];
+                switch ($mime) {
+                    case 'image/jpeg':
+                        $image = @imagecreatefromjpeg($absolutePath);
+                        break;
+                    case 'image/png':
+                        $image = @imagecreatefrompng($absolutePath);
+                        break;
+                    case 'image/webp':
+                        $image = @imagecreatefromwebp($absolutePath);
+                        break;
+                    default:
+                        continue 2; // Formato no soportado
+                }
+
+                if (!$image) continue;
+
+                $width = imagesx($image);
+                $height = imagesy($image);
+
+                // Escalar si es muy grande
+                if ($width > 1200) {
+                    $newWidth = 1200;
+                    $newHeight = (int) (($height / $width) * 1200);
+                    $newImage = imagecreatetruecolor($newWidth, $newHeight);
+                    
+                    // Mantener transparencia si es PNG o WEBP
+                    if ($mime === 'image/png' || $mime === 'image/webp') {
+                        imagealphablending($newImage, false);
+                        imagesavealpha($newImage, true);
+                        $transparent = imagecolorallocatealpha($newImage, 255, 255, 255, 127);
+                        imagefilledrectangle($newImage, 0, 0, $newWidth, $newHeight, $transparent);
+                    }
+
+                    imagecopyresampled($newImage, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+                    imagedestroy($image);
+                    $image = $newImage;
                 }
                 
                 // Generar ruta y convertir a WebP (calidad 80)
-                // Se agrega un sufijo único para evitar sobrescribir si se suben varias al mismo tiempo
                 $newFilename = 'products/' . $sku . '-' . uniqid() . '.webp';
                 $destPath = storage_path('app/public/' . $newFilename);
                 
@@ -350,7 +380,8 @@ class ProductSync extends Page implements HasForms
                     mkdir(dirname($destPath), 0755, true);
                 }
                 
-                $image->toWebp(80)->save($destPath);
+                imagewebp($image, $destPath, 80);
+                imagedestroy($image);
                 
                 // Actualizar producto en BD (Imagen Principal vs Galería)
                 if ($isGallery) {
@@ -363,8 +394,8 @@ class ProductSync extends Page implements HasForms
                 
                 $processed++;
                 
-            } catch (\Exception $e) {
-                // Si falla procesar una foto, continuar con las demás
+            } catch (\Throwable $e) {
+                // Captura Error o Exception genérico
                 continue;
             }
         }
