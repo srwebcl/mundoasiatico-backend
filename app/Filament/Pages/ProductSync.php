@@ -269,8 +269,7 @@ class ProductSync extends Page implements HasForms
                     ->label('Imágenes (Formatos: JPG, PNG, WEBP, etc.)')
                     ->helperText('Para la imagen principal usa el SKU (ej. FRENOS-001.jpg). Para imágenes secundarias (galería), usa el SKU seguido de un guión bajo y un número (ej. FRENOS-001_1.jpg, FRENOS-001_2.jpg)')
                     ->multiple()
-                    ->directory('temp_sync_images')
-                    ->preserveFilenames()
+                    ->storeFiles(false)
                     ->columnSpanFull()
             ])
             ->statePath('data');
