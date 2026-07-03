@@ -70,16 +70,23 @@ class ProductSync extends Page implements HasForms
             }
             
             $csv = $response->body();
-            $lines = explode("\n", $csv);
+            // Soporte para saltos de línea y parseo seguro con str_getcsv
+            $lines = explode(PHP_EOL, $csv);
             
             if (count($lines) < 2) {
                 Notification::make()->title('El archivo parece estar vacío.')->warning()->send();
                 return;
             }
 
-            $header = str_getcsv(array_shift($lines));
+            // Normalizar encabezados (quitar acentos, tildes y pasar a minusculas)
+            $rawHeader = str_getcsv(array_shift($lines));
+            $header = array_map(function($h) {
+                $h = strtolower(iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', trim($h)));
+                return preg_replace('/[^a-z0-9]/', '_', $h);
+            }, $rawHeader);
             
-            $count = 0;
+            $groupedProducts = [];
+
             foreach ($lines as $line) {
                 if (trim($line) === '') continue;
                 $row = str_getcsv($line);
@@ -87,49 +94,97 @@ class ProductSync extends Page implements HasForms
                 
                 $data = array_combine($header, $row);
                 
-                $normalized = [];
-                foreach ($data as $k => $v) {
-                    // Normalize keys: lower, trim, space to underscore
-                    $key = strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', trim($k)));
-                    $normalized[$key] = trim($v);
+                $sku = trim($data['sku'] ?? '');
+                if (empty($sku)) continue;
+
+                // Buscar columnas variables por coincidencia parcial
+                $condicionKey = collect(array_keys($data))->first(fn($k) => str_contains($k, 'condici'));
+                $garantiaKey = collect(array_keys($data))->first(fn($k) => str_contains($k, 'garant'));
+                $origenKey = collect(array_keys($data))->first(fn($k) => str_contains($k, 'origen'));
+
+                // Si es primera vez que vemos el SKU, guardamos los datos base
+                if (!isset($groupedProducts[$sku])) {
+                    $groupedProducts[$sku] = [
+                        'producto' => $data['producto'] ?? '',
+                        'descripcion' => $data['descripcion'] ?? '',
+                        'categoria' => $data['categoria'] ?? '',
+                        'marca_repuesto' => $data['marca_del_repuesto'] ?? '',
+                        'precio_venta' => $data['precio_venta'] ?? '0',
+                        'precio_oferta' => $data['precio_oferta'] ?? '0',
+                        'stock_actual' => $data['stock_actual'] ?? '0',
+                        'condicion' => $condicionKey ? trim($data[$condicionKey]) : '',
+                        'garantia' => $garantiaKey ? trim($data[$garantiaKey]) : '',
+                        'origen' => $origenKey ? trim($data[$origenKey]) : '',
+                        'modelos' => []
+                    ];
                 }
-                
-                if (empty($normalized['sku'])) continue;
-                
+
+                // Extraer modelos compatibles para este SKU
+                $marcaCompatible = trim($data['marca_compatible'] ?? '');
+                $modeloCompatible = trim($data['modelo_compatible'] ?? '');
+                $cilindrada = trim($data['cilindrada'] ?? '');
+                $anios = trim($data['anos_compatibles'] ?? '');
+
+                if (!empty($marcaCompatible) && !empty($modeloCompatible)) {
+                    $groupedProducts[$sku]['modelos'][] = [
+                        'marca' => $marcaCompatible,
+                        'modelo' => $modeloCompatible,
+                        'cilindrada' => $cilindrada,
+                        'anios' => $anios
+                    ];
+                }
+            }
+            
+            $count = 0;
+            foreach ($groupedProducts as $sku => $productData) {
+                // 1. Marca del Repuesto
                 $brandId = null;
-                if (!empty($normalized['marca'])) {
+                if (!empty($productData['marca_repuesto'])) {
                     $brand = Brand::firstOrCreate(
-                        ['name' => $normalized['marca']],
-                        ['slug' => \Illuminate\Support\Str::slug($normalized['marca']), 'is_active' => true]
+                        ['name' => $productData['marca_repuesto']],
+                        ['slug' => \Illuminate\Support\Str::slug($productData['marca_repuesto']), 'is_active' => true]
                     );
                     $brandId = $brand->id;
                 }
                 
+                // 2. Categoría
                 $catId = null;
-                if (!empty($normalized['categoria'])) {
+                if (!empty($productData['categoria'])) {
                     $cat = Category::firstOrCreate(
-                        ['name' => $normalized['categoria']],
-                        ['slug' => \Illuminate\Support\Str::slug($normalized['categoria']), 'is_active' => true]
+                        ['name' => $productData['categoria']],
+                        ['slug' => \Illuminate\Support\Str::slug($productData['categoria']), 'is_active' => true]
                     );
                     $catId = $cat->id;
                 }
                 
-                // Get price handling both "precio" and "precio_normal"
-                $priceStr = $normalized['precio_normal'] ?? $normalized['precio'] ?? '0';
-                $regularPrice = (int) preg_replace('/[^0-9]/', '', $priceStr);
-                
-                $wholesalePriceStr = $normalized['precio_mayorista'] ?? '0';
-                $wholesalePrice = (int) preg_replace('/[^0-9]/', '', $wholesalePriceStr);
+                // 3. Precios y Stock
+                $regularPrice = (int) preg_replace('/[^0-9]/', '', $productData['precio_venta']);
+                $wholesalePrice = (int) preg_replace('/[^0-9]/', '', $productData['precio_oferta']);
+                $stock = (int) preg_replace('/[^0-9]/', '', $productData['stock_actual']);
 
-                $stockStr = $normalized['stock'] ?? '0';
-                $stock = (int) preg_replace('/[^0-9]/', '', $stockStr);
+                // 4. Construir Descripción Extendida
+                $descExtra = [];
+                if (!empty($productData['origen'])) $descExtra[] = "Origen: " . $productData['origen'];
+                if (!empty($productData['condicion'])) $descExtra[] = "Condición: " . $productData['condicion'];
+                if (!empty($productData['garantia'])) $descExtra[] = "Garantía: " . $productData['garantia'];
 
-                Product::updateOrCreate(
-                    ['sku' => $normalized['sku']],
+                $cilindradas = array_filter(array_column($productData['modelos'], 'cilindrada'));
+                if (!empty($cilindradas)) {
+                    $descExtra[] = "Cilindradas compatibles: " . implode(', ', array_unique($cilindradas));
+                }
+
+                $finalDescription = $productData['descripcion'] ?? '';
+                if (!empty($descExtra)) {
+                    $finalDescription .= "\n\n" . implode("\n", $descExtra);
+                }
+
+                // 5. Crear o Actualizar Producto
+                $product = Product::updateOrCreate(
+                    ['sku' => $sku],
                     [
-                        'name' => $normalized['nombre'] ?? 'Sin nombre',
-                        'slug' => \Illuminate\Support\Str::slug($normalized['nombre'] ?? $normalized['sku']),
-                        'description' => $normalized['descripcion'] ?? '',
+                        'name' => $productData['producto'] ?: 'Sin nombre',
+                        'slug' => \Illuminate\Support\Str::slug($productData['producto'] ?: $sku),
+                        'description' => trim($finalDescription),
                         'regular_price' => $regularPrice,
                         'wholesale_price' => $wholesalePrice,
                         'stock' => $stock,
@@ -137,6 +192,55 @@ class ProductSync extends Page implements HasForms
                         'category_id' => $catId,
                     ]
                 );
+
+                // 5. Vincular Modelos Compatibles
+                $carModelIdsToSync = [];
+                foreach ($productData['modelos'] as $mod) {
+                    // Buscar o crear la Marca de Auto (Chery, Great Wall, etc)
+                    $carBrand = Brand::firstOrCreate(
+                        ['name' => $mod['marca']],
+                        ['slug' => \Illuminate\Support\Str::slug($mod['marca']), 'is_active' => true]
+                    );
+
+                    // Parsear años (ej: "2016 - 2017")
+                    $yearStart = null;
+                    $yearEnd = null;
+                    if (!empty($mod['anios'])) {
+                        preg_match_all('/\d{4}/', $mod['anios'], $matches);
+                        if (count($matches[0]) >= 2) {
+                            $yearStart = $matches[0][0];
+                            $yearEnd = $matches[0][1];
+                        } elseif (count($matches[0]) == 1) {
+                            $yearStart = $matches[0][0];
+                        }
+                    }
+
+                    // Buscar o crear el Modelo de Auto
+                    $carModel = \App\Models\CarModel::firstOrCreate(
+                        [
+                            'name' => $mod['modelo'],
+                            'brand_id' => $carBrand->id
+                        ],
+                        [
+                            'slug' => \Illuminate\Support\Str::slug($mod['marca'] . '-' . $mod['modelo']),
+                            'is_active' => true,
+                            'year_start' => $yearStart,
+                            'year_end' => $yearEnd
+                        ]
+                    );
+                    
+                    // Si el excel tiene años específicos y el modelo existente los tenía nulos, los actualizamos
+                    if ($yearStart && !$carModel->year_start) {
+                        $carModel->update(['year_start' => $yearStart, 'year_end' => $yearEnd]);
+                    }
+
+                    $carModelIdsToSync[] = $carModel->id;
+                }
+
+                if (!empty($carModelIdsToSync)) {
+                    $product->carModels()->sync(array_unique($carModelIdsToSync));
+                }
+
                 $count++;
             }
             
@@ -153,7 +257,7 @@ class ProductSync extends Page implements HasForms
             ->schema([
                 FileUpload::make('images')
                     ->label('Imágenes (Formatos: JPG, PNG, WEBP, etc.)')
-                    ->helperText('¡IMPORTANTE! Cada imagen debe llamarse EXACTAMENTE igual que su SKU (ej. FILTRO-001.jpg)')
+                    ->helperText('Para la imagen principal usa el SKU (ej. FRENOS-001.jpg). Para imágenes secundarias (galería), usa el SKU seguido de un guión bajo y un número (ej. FRENOS-001_1.jpg, FRENOS-001_2.jpg)')
                     ->multiple()
                     ->directory('temp_sync_images')
                     ->preserveFilenames()
@@ -185,7 +289,24 @@ class ProductSync extends Page implements HasForms
             if (!file_exists($absolutePath)) continue;
             
             $filename = basename($tempPath);
-            $sku = pathinfo($filename, PATHINFO_FILENAME);
+            $nameWithoutExt = pathinfo($filename, PATHINFO_FILENAME);
+            
+            $isGallery = false;
+            $sku = $nameWithoutExt;
+            
+            // Verificar si es una imagen de galería (ej. SKU_1)
+            if (str_contains($nameWithoutExt, '_')) {
+                // Separamos por el último guion bajo
+                $parts = explode('_', $nameWithoutExt);
+                $suffix = array_pop($parts);
+                $potentialSku = implode('_', $parts);
+                
+                // Verificamos si existe un producto con el SKU antes del guion bajo
+                if (Product::where('sku', $potentialSku)->exists()) {
+                    $sku = $potentialSku;
+                    $isGallery = true;
+                }
+            }
             
             $product = Product::where('sku', $sku)->first();
             if (!$product) {
@@ -203,6 +324,7 @@ class ProductSync extends Page implements HasForms
                 }
                 
                 // Generar ruta y convertir a WebP (calidad 80)
+                // Se agrega un sufijo único para evitar sobrescribir si se suben varias al mismo tiempo
                 $newFilename = 'products/' . $sku . '-' . uniqid() . '.webp';
                 $destPath = storage_path('app/public/' . $newFilename);
                 
@@ -212,8 +334,15 @@ class ProductSync extends Page implements HasForms
                 
                 $image->toWebp(80)->save($destPath);
                 
-                // Actualizar producto en BD
-                $product->update(['image' => $newFilename]);
+                // Actualizar producto en BD (Imagen Principal vs Galería)
+                if ($isGallery) {
+                    $gallery = is_array($product->gallery) ? $product->gallery : [];
+                    $gallery[] = $newFilename;
+                    $product->update(['gallery' => array_values(array_unique($gallery))]);
+                } else {
+                    $product->update(['image' => $newFilename]);
+                }
+                
                 $processed++;
                 
                 // Eliminar el archivo original temporal pesado
