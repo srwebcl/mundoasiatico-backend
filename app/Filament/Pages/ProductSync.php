@@ -140,9 +140,10 @@ class ProductSync extends Page implements HasForms
                 // 1. Marca del Repuesto
                 $brandId = null;
                 if (!empty($productData['marca_repuesto'])) {
+                    $brandSlug = \Illuminate\Support\Str::slug($productData['marca_repuesto']);
                     $brand = Brand::firstOrCreate(
-                        ['name' => $productData['marca_repuesto']],
-                        ['slug' => \Illuminate\Support\Str::slug($productData['marca_repuesto']), 'is_active' => true]
+                        ['slug' => $brandSlug],
+                        ['name' => $productData['marca_repuesto'], 'is_active' => true]
                     );
                     $brandId = $brand->id;
                 }
@@ -150,9 +151,10 @@ class ProductSync extends Page implements HasForms
                 // 2. Categoría
                 $catId = null;
                 if (!empty($productData['categoria'])) {
+                    $catSlug = \Illuminate\Support\Str::slug($productData['categoria']);
                     $cat = Category::firstOrCreate(
-                        ['name' => $productData['categoria']],
-                        ['slug' => \Illuminate\Support\Str::slug($productData['categoria']), 'is_active' => true]
+                        ['slug' => $catSlug],
+                        ['name' => $productData['categoria'], 'is_active' => true]
                     );
                     $catId = $cat->id;
                 }
@@ -205,9 +207,10 @@ class ProductSync extends Page implements HasForms
                 $carModelIdsToSync = [];
                 foreach ($productData['modelos'] as $mod) {
                     // Buscar o crear la Marca de Auto (Chery, Great Wall, etc)
+                    $carBrandSlug = \Illuminate\Support\Str::slug($mod['marca']);
                     $carBrand = Brand::firstOrCreate(
-                        ['name' => $mod['marca']],
-                        ['slug' => \Illuminate\Support\Str::slug($mod['marca']), 'is_active' => true]
+                        ['slug' => $carBrandSlug],
+                        ['name' => $mod['marca'], 'is_active' => true]
                     );
 
                     // Parsear años (ej: "2016 - 2017")
@@ -223,14 +226,13 @@ class ProductSync extends Page implements HasForms
                         }
                     }
 
-                    // Buscar o crear el Modelo de Auto
+                    // Buscar o crear el Modelo de Auto buscando por SLUG, no por nombre
+                    $carModelSlug = \Illuminate\Support\Str::slug($mod['marca'] . '-' . $mod['modelo']);
                     $carModel = \App\Models\CarModel::firstOrCreate(
+                        ['slug' => $carModelSlug],
                         [
                             'name' => $mod['modelo'],
-                            'brand_id' => $carBrand->id
-                        ],
-                        [
-                            'slug' => \Illuminate\Support\Str::slug($mod['marca'] . '-' . $mod['modelo']),
+                            'brand_id' => $carBrand->id,
                             'is_active' => true,
                             'year_start' => $yearStart,
                             'year_end' => $yearEnd
