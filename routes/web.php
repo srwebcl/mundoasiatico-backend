@@ -46,7 +46,28 @@ Route::get('/run-setup', function () {
     }
 });
 
-// Ruta temporal para ejecutar migraciones en producción (cPanel) sin acceso a terminal
+Route::get('/fix-storage', function () {
+    $target = storage_path('app/public');
+    $link = public_path('storage');
+    
+    $msg = "";
+    if (file_exists($link) || is_link($link)) {
+        if (is_link($link)) {
+            unlink($link);
+            $msg .= "Symlink anterior eliminado. ";
+        } else {
+            return 'El directorio public/storage ya existe y es una carpeta real (no un acceso directo). Renómbrala o bórrala manualmente en cPanel para poder crear el enlace.';
+        }
+    }
+    
+    try {
+        symlink($target, $link);
+        $msg .= "Nuevo symlink creado exitosamente de $target a $link.";
+        return $msg;
+    } catch (\Exception $e) {
+        return "Error creando symlink: " . $e->getMessage();
+    }
+});
 Route::get('/run-migrations-secreto-123', function () {
     try {
         \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
