@@ -305,7 +305,7 @@ class ProductSync extends Page implements HasForms
 
             if (!file_exists($absolutePath)) continue;
             
-            $nameWithoutExt = pathinfo($filename, PATHINFO_FILENAME);
+            $nameWithoutExt = trim(pathinfo($filename, PATHINFO_FILENAME));
             
             $isGallery = false;
             $sku = $nameWithoutExt;
@@ -314,7 +314,7 @@ class ProductSync extends Page implements HasForms
             if (str_contains($nameWithoutExt, '_')) {
                 $parts = explode('_', $nameWithoutExt);
                 $suffix = array_pop($parts);
-                $potentialSku = implode('_', $parts);
+                $potentialSku = trim(implode('_', $parts));
                 
                 if (Product::where('sku', $potentialSku)->exists()) {
                     $sku = $potentialSku;
@@ -322,8 +322,11 @@ class ProductSync extends Page implements HasForms
                 }
             }
             
+            \Illuminate\Support\Facades\Log::info("Procesando imagen: {$filename} -> SKU buscado: {$sku}");
+            
             $product = Product::where('sku', $sku)->first();
             if (!$product) {
+                \Illuminate\Support\Facades\Log::warning("No se encontró producto para el SKU: {$sku}");
                 $notFound++;
                 continue;
             }
@@ -331,7 +334,10 @@ class ProductSync extends Page implements HasForms
             try {
                 // PROCESAMIENTO NATIVO CON PHP GD (Sin librerías externas)
                 $info = @getimagesize($absolutePath);
-                if (!$info) continue;
+                if (!$info) {
+                    \Illuminate\Support\Facades\Log::error("No se pudo leer la imagen con getimagesize: {$absolutePath}");
+                    continue;
+                }
 
                 $mime = $info['mime'];
                 switch ($mime) {
@@ -345,10 +351,14 @@ class ProductSync extends Page implements HasForms
                         $image = @imagecreatefromwebp($absolutePath);
                         break;
                     default:
+                        \Illuminate\Support\Facades\Log::error("Formato mime no soportado ({$mime}) para: {$filename}");
                         continue 2; // Formato no soportado
                 }
 
-                if (!$image) continue;
+                if (!$image) {
+                    \Illuminate\Support\Facades\Log::error("Fallo imagecreatefrom... para: {$filename}");
+                    continue;
+                }
 
                 $width = imagesx($image);
                 $height = imagesy($image);
@@ -393,20 +403,22 @@ class ProductSync extends Page implements HasForms
                 }
                 
                 $processed++;
+                \Illuminate\Support\Facades\Log::info("Imagen asignada exitosamente al SKU {$sku}");
                 
             } catch (\Throwable $e) {
-                // Captura Error o Exception genérico
+                \Illuminate\Support\Facades\Log::error("Excepción al procesar {$filename}: " . $e->getMessage());
                 continue;
             }
         }
         
-        $this->form->fill(); // Limpiar el formulario
-        
-        $msg = "Se transformaron y asignaron $processed imágenes exitosamente.";
+        $msg = "Se transformaron y asignaron {$processed} imágenes exitosamente.";
         if ($notFound > 0) {
-            $msg .= " Nota: $notFound imágenes se ignoraron porque no existe ningún producto con ese nombre (SKU).";
+            $msg .= " Sin embargo, {$notFound} imágenes fueron ignoradas porque su nombre no coincidía exactamente con ningún SKU.";
+            Notification::make()->title('Proceso Completado con advertencias')->body($msg)->warning()->send();
+        } else {
+            Notification::make()->title('Proceso Completado')->body($msg)->success()->send();
         }
         
-        Notification::make()->title('Optimización de Imágenes Lista')->body($msg)->success()->send();
+        $this->form->fill(['images' => []]);
     }
 }
