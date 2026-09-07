@@ -53,8 +53,20 @@ Precio Venta, Precio Oferta, Stock Actual, Stock Mínimo,
 Origen, Condición, Garantía
 ```
 
-Los encabezados se normalizan solos (minúsculas, sin tildes, espacios → `_`). La única
-columna **obligatoria es `SKU`**; una fila sin SKU se ignora.
+Los encabezados se normalizan solos (minúsculas, sin tildes, espacios → `_`) y se
+detectan por **coincidencia parcial**, así que sirven variantes: `PRECIO`, `Precio
+Venta`, `Valor`, `PVP` → precio de venta; `Precio Oferta`, `Mayorista` → precio
+mayorista; `Stock`, `Existencia`, `Cantidad` → stock; etc. La única columna
+**obligatoria es `SKU`**; una fila sin SKU se ignora. Si no se detecta ninguna columna
+de precio, el importador lo avisa y lista los encabezados que encontró.
+
+### Datos que se repiten por SKU
+
+Estas planillas suelen llenar los datos del producto (nombre, precio, categoría, stock…)
+**sólo en la primera fila de cada SKU** y dejar en blanco las filas de compatibilidad
+siguientes. El importador toma, para cada campo, el **primer valor no vacío** que aparezca
+en cualquier fila de ese SKU. Si un producto queda en `$0` es porque *ninguna* fila de su
+SKU tenía la columna de precio con valor.
 
 ### Un producto por fila (SKU repetible)
 
@@ -289,4 +301,13 @@ columna `imagen_url` procesada en la cola.
 - `ProductSync::processImages()`: la foto de un SKU se asigna a **todos** los productos
   con ese SKU.
 - `ProductResource`: se quita la validación `unique` del campo SKU.
+
+### Detección tolerante de columnas + precio
+
+- Los encabezados se detectan por coincidencia parcial (`PRECIO`, `Valor`, `PVP`, …),
+  no por nombre exacto. Antes sólo funcionaba `Precio Venta` / `Precio Oferta`.
+- Datos base por SKU: primer valor no vacío entre todas las filas del SKU (nombre,
+  precio, categoría, stock, marca, condición, garantía, origen).
+- Si falta la columna de precio, o si quedan productos en `$0`, el importador avisa.
+- Si no hay precio mayorista propio, se usa el precio de venta.
 - Pendiente: stock compartido por SKU (§7 F4).

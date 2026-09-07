@@ -151,18 +151,57 @@ class ProductSync extends Page implements HasForms
                 return;
             }
 
-            // UN PRODUCTO POR FILA: dos filas con el mismo SKU pero distinto vehículo
-            // compatible son dos productos distintos. La clave de identidad para
-            // re-importar es sku + marca compatible + modelo compatible.
-            $rows = [];
+            // Detección tolerante de columnas: los encabezados varían entre planillas
+            // ("PRECIO", "Precio Venta", "Valor", ...). Se busca por coincidencia parcial.
+            $findKey = function (array $needles, array $exclude = []) use ($header) {
+                foreach ($header as $h) {
+                    foreach ($exclude as $e) {
+                        if ($e !== '' && str_contains($h, $e)) { continue 2; }
+                    }
+                    foreach ($needles as $n) {
+                        if (str_contains($h, $n)) { return $h; }
+                    }
+                }
+                return null;
+            };
+
+            $kProducto    = $findKey(['producto', 'nombre', 'articulo', 'item_nombre', 'descripcion_corta'], ['marca']);
+            $kDescripcion = $findKey(['descripcion', 'detalle', 'observacion'], ['corta']);
+            $kCategoria   = $findKey(['categoria', 'rubro', 'familia']);
+            $kMarcaRep    = $findKey(['repuesto', 'marca_oem', 'fabricante'], ['compatible', 'auto', 'vehiculo'])
+                            ?? ($findKey(['marca'], ['compatible', 'auto', 'vehiculo']));
+            $kPrecioVenta = $findKey(['precio_venta', 'precio_publico', 'precio_normal', 'precio_detalle', 'precio', 'valor', 'pvp'],
+                                     ['oferta', 'mayor', 'min', 'costo', 'compra', 'descuento', 'anterior']);
+            $kPrecioOferta= $findKey(['precio_oferta', 'oferta', 'precio_mayorista', 'mayorista', 'precio_mayor', 'precio_descuento'],
+                                     ['minimo']);
+            $kStock       = $findKey(['stock_actual', 'stock', 'existencia', 'inventario', 'disponible', 'cantidad'], ['min', 'reserv']);
+            $kCondicion   = $findKey(['condici']);
+            $kGarantia    = $findKey(['garant']);
+            $kOrigen      = $findKey(['origen', 'procedencia']);
+            $kMarcaComp   = $findKey(['marca_compatible', 'marca_auto', 'marca_vehiculo', 'marca_del_auto', 'marca_de_auto']);
+            $kModeloComp  = $findKey(['modelo_compatible', 'modelo_auto', 'modelo_vehiculo', 'modelo'], ['marca']);
+            $kCilindrada  = $findKey(['cilindrada', 'motorizacion', 'cc']);
+            $kAnios       = $findKey(['anos_compatibles', 'anios_compatibles', 'aos_compatibles', 'anos', 'anios', 'aos', 'ano', 'year', 'periodo']);
+
+            // Si sólo hay una columna de precio, sirve para ambos campos.
+            $kPrecioVenta = $kPrecioVenta ?: $kPrecioOferta;
+            $kPrecioOferta = $kPrecioOferta ?: $kPrecioVenta;
+
+            $val = fn (array $data, ?string $key) => $key !== null ? trim((string) ($data[$key] ?? '')) : '';
+
+            // PRIMERA PASADA: datos base por SKU (primer valor NO vacío que aparezca).
+            // Estas planillas suelen llenar los datos del producto sólo en la primera
+            // fila de cada SKU y dejar en blanco las filas de compatibilidad siguientes.
+            $skuBase = [];
+            $parsed = [];
+
+            $baseFields = ['producto', 'descripcion', 'categoria', 'marca_repuesto',
+                           'precio_venta', 'precio_oferta', 'stock_actual', 'condicion', 'garantia', 'origen'];
 
             foreach ($lines as $line) {
                 if (trim($line) === '') continue;
                 $row = str_getcsv($line, ',', '"', '');
 
-                // Ajustar la fila EXACTAMENTE al ancho del encabezado:
-                // - si faltan columnas se rellenan con '' (antes se descartaba la fila entera)
-                // - si sobran columnas se recortan (antes array_combine lanzaba ValueError -> 500)
                 if (count($row) < $headerCount) {
                     $row = array_pad($row, $headerCount, '');
                 } elseif (count($row) > $headerCount) {
@@ -170,43 +209,70 @@ class ProductSync extends Page implements HasForms
                 }
 
                 $data = array_combine($header, $row);
-
                 $sku = trim($data['sku'] ?? '');
-                if (empty($sku)) continue;
+                if ($sku === '') continue;
 
-                // Buscar columnas variables por coincidencia parcial
-                $condicionKey = collect(array_keys($data))->first(fn($k) => str_contains($k, 'condici'));
-                $garantiaKey = collect(array_keys($data))->first(fn($k) => str_contains($k, 'garant'));
-                $origenKey = collect(array_keys($data))->first(fn($k) => str_contains($k, 'origen'));
+                $fields = [
+                    'producto'       => $val($data, $kProducto),
+                    'descripcion'    => $val($data, $kDescripcion),
+                    'categoria'      => $val($data, $kCategoria),
+                    'marca_repuesto' => $val($data, $kMarcaRep),
+                    'precio_venta'   => $val($data, $kPrecioVenta),
+                    'precio_oferta'  => $val($data, $kPrecioOferta),
+                    'stock_actual'   => $val($data, $kStock),
+                    'condicion'      => $val($data, $kCondicion),
+                    'garantia'       => $val($data, $kGarantia),
+                    'origen'         => $val($data, $kOrigen),
+                    'marca_compatible'  => $val($data, $kMarcaComp),
+                    'modelo_compatible' => $val($data, $kModeloComp),
+                    'cilindrada'        => $val($data, $kCilindrada),
+                    'anios'             => $val($data, $kAnios),
+                ];
 
-                $marcaCompatible = trim($data['marca_compatible'] ?? '');
-                $modeloCompatible = trim($data['modelo_compatible'] ?? '');
-                $cilindrada = trim($data['cilindrada'] ?? '');
-                $anios = trim($data['anos_compatibles'] ?? '');
+                $skuBase[$sku] ??= array_fill_keys($baseFields, '');
+                foreach ($baseFields as $f) {
+                    if ($skuBase[$sku][$f] === '' && $fields[$f] !== '') {
+                        $skuBase[$sku][$f] = $fields[$f];
+                    }
+                }
+
+                $parsed[] = ['sku' => $sku, 'fields' => $fields];
+            }
+
+            // SEGUNDA PASADA: un producto por fila. Cada campo base se toma de la fila
+            // si viene lleno; si no, del dato base del SKU.
+            $rows = [];
+            foreach ($parsed as $p) {
+                $sku = $p['sku'];
+                $f = $p['fields'];
+                $base = $skuBase[$sku];
+
+                $resolve = fn (string $field) => $f[$field] !== '' ? $f[$field] : $base[$field];
+
+                $marcaCompatible  = $f['marca_compatible'];
+                $modeloCompatible = $f['modelo_compatible'];
 
                 $importKey = $sku . '|'
                     . \Illuminate\Support\Str::slug($marcaCompatible) . '|'
                     . \Illuminate\Support\Str::slug($modeloCompatible);
 
-                // Si la misma clave aparece varias veces en el archivo, la última fila
-                // gana en los campos escalares (nombre, precio, stock...).
                 $rows[$importKey] = [
-                    'sku' => $sku,
-                    'import_key' => $importKey,
-                    'producto' => $data['producto'] ?? '',
-                    'descripcion' => $data['descripcion'] ?? '',
-                    'categoria' => $data['categoria'] ?? '',
-                    'marca_repuesto' => $data['marca_del_repuesto'] ?? '',
-                    'precio_venta' => $data['precio_venta'] ?? '0',
-                    'precio_oferta' => $data['precio_oferta'] ?? '0',
-                    'stock_actual' => $data['stock_actual'] ?? '0',
-                    'condicion' => $condicionKey ? trim($data[$condicionKey]) : '',
-                    'garantia' => $garantiaKey ? trim($data[$garantiaKey]) : '',
-                    'origen' => $origenKey ? trim($data[$origenKey]) : '',
-                    'marca_compatible' => $marcaCompatible,
+                    'sku'            => $sku,
+                    'import_key'     => $importKey,
+                    'producto'       => $resolve('producto'),
+                    'descripcion'    => $resolve('descripcion'),
+                    'categoria'      => $resolve('categoria'),
+                    'marca_repuesto' => $resolve('marca_repuesto'),
+                    'precio_venta'   => $resolve('precio_venta'),
+                    'precio_oferta'  => $resolve('precio_oferta'),
+                    'stock_actual'   => $resolve('stock_actual'),
+                    'condicion'      => $resolve('condicion'),
+                    'garantia'       => $resolve('garantia'),
+                    'origen'         => $resolve('origen'),
+                    'marca_compatible'  => $marcaCompatible,
                     'modelo_compatible' => $modeloCompatible,
-                    'cilindrada' => $cilindrada,
-                    'anios' => $anios,
+                    'cilindrada'        => $f['cilindrada'],
+                    'anios'             => $f['anios'],
                 ];
             }
 
@@ -223,6 +289,7 @@ class ProductSync extends Page implements HasForms
 
             $created = 0;
             $updated = 0;
+            $sinPrecio = 0;
             $usedSlugs = [];
             $adoptedLegacyIds = [];
 
@@ -251,10 +318,18 @@ class ProductSync extends Page implements HasForms
                     $catId = $cat->id;
                 }
 
-                // 3. Precios y Stock
-                $regularPrice = (int) preg_replace('/[^0-9]/', '', $productData['precio_venta']);
-                $wholesalePrice = (int) preg_replace('/[^0-9]/', '', $productData['precio_oferta']);
-                $stock = (int) preg_replace('/[^0-9]/', '', $productData['stock_actual']);
+                // 3. Precios y Stock. En CLP se acepta "$40.000", "40000", "40,000".
+                $regularPrice = (int) preg_replace('/[^0-9]/', '', (string) $productData['precio_venta']);
+                $wholesalePrice = (int) preg_replace('/[^0-9]/', '', (string) $productData['precio_oferta']);
+                $stock = (int) preg_replace('/[^0-9]/', '', (string) $productData['stock_actual']);
+
+                // Sin precio mayorista propio -> se usa el de venta (sin descuento).
+                if ($wholesalePrice === 0 && $regularPrice > 0) {
+                    $wholesalePrice = $regularPrice;
+                }
+                if ($regularPrice === 0) {
+                    $sinPrecio++;
+                }
 
                 // 4. Vehículo compatible de ESTA fila (uno por producto)
                 $marcaCompatible = $productData['marca_compatible'];
@@ -378,11 +453,26 @@ class ProductSync extends Page implements HasForms
                 }
             }
 
-            Notification::make()
-                ->title('Sincronización completa')
-                ->body("Creados: {$created} · Actualizados: {$updated} · Total de filas: " . count($rows))
-                ->success()
-                ->send();
+            $resumen = "Creados: {$created} · Actualizados: {$updated} · Total de filas: " . count($rows);
+
+            if (! $kPrecioVenta) {
+                Notification::make()
+                    ->title('No se detectó ninguna columna de precio')
+                    ->body('Encabezados detectados: ' . implode(', ', array_slice($header, 0, 25))
+                        . '. Renombra la columna de precio a "Precio" o "Precio Venta". ' . $resumen)
+                    ->warning()->persistent()->send();
+            } elseif ($sinPrecio > 0) {
+                Notification::make()
+                    ->title("Sincronización completa — {$sinPrecio} producto(s) sin precio")
+                    ->body("Esos productos quedaron en \$0 porque su fila (y las demás filas de su SKU) "
+                        . "tenían la columna de precio vacía. {$resumen}")
+                    ->warning()->persistent()->send();
+            } else {
+                Notification::make()
+                    ->title('Sincronización completa')
+                    ->body($resumen)
+                    ->success()->send();
+            }
 
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('ProductSync runSync: ' . $e->getMessage(), [
