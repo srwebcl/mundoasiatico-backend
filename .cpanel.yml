@@ -5,5 +5,13 @@ deployment:
     - /usr/local/bin/php artisan config:clear
     - /usr/local/bin/php artisan route:clear
     - /usr/local/bin/php artisan view:clear
+    - /usr/local/bin/php artisan cache:clear
+    - echo "===== ESTADO DE MIGRACIONES (ANTES) ====="
+    - /usr/local/bin/php artisan migrate:status || true
+    - echo "===== APLICANDO MIGRACIONES PENDIENTES ====="
     - /usr/local/bin/php artisan migrate --force
-    - /usr/local/bin/php artisan storage:link
+    - echo "===== ESTADO DE MIGRACIONES (DESPUES) ====="
+    - /usr/local/bin/php artisan migrate:status || true
+    - /usr/local/bin/php artisan storage:link || true
+    - /usr/local/bin/php artisan filament:clear-cached-components || true
+    - echo "===== DEPLOY OK ====="

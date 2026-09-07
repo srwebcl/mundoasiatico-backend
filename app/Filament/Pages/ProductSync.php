@@ -47,14 +47,30 @@ class ProductSync extends Page implements HasForms
                         ->label('URL Pública del CSV (Google Sheets)')
                         ->helperText('Debes publicar el Google Sheet en la web como formato CSV y pegar el link aquí.')
                         ->required()
-                        ->default(fn () => Setting::where('key', 'google_sheets_csv_url')->value('value'))
+                        ->default(function () {
+                            // Blindado: si la tabla 'settings' no existe o la BD falla,
+                            // no debe reventar el montaje de la acción (error 500 al abrir el modal).
+                            try {
+                                if (! \Illuminate\Support\Facades\Schema::hasTable('settings')) {
+                                    return null;
+                                }
+                                return Setting::where('key', 'google_sheets_csv_url')->value('value');
+                            } catch (\Throwable $e) {
+                                \Illuminate\Support\Facades\Log::warning('ProductSync default csv_url: ' . $e->getMessage());
+                                return null;
+                            }
+                        })
                 ])
                 ->action(function (array $data) {
-                    Setting::updateOrCreate(
-                        ['key' => 'google_sheets_csv_url'],
-                        ['value' => $data['csv_url'], 'label' => 'URL Google Sheets', 'type' => 'text']
-                    );
-                    
+                    try {
+                        Setting::updateOrCreate(
+                            ['key' => 'google_sheets_csv_url'],
+                            ['value' => $data['csv_url'], 'label' => 'URL Google Sheets', 'type' => 'text']
+                        );
+                    } catch (\Throwable $e) {
+                        \Illuminate\Support\Facades\Log::warning('ProductSync guardar URL: ' . $e->getMessage());
+                    }
+
                     $this->runSync($data['csv_url']);
                 }),
         ];
@@ -62,38 +78,64 @@ class ProductSync extends Page implements HasForms
 
     protected function runSync($url)
     {
+        // Una carga masiva puede superar el límite por defecto de PHP en cPanel (30s / 128M).
+        @set_time_limit(0);
+        @ini_set('memory_limit', '512M');
+
+        // catch (\Throwable) captura además \Error, \TypeError y \ValueError
+        // (p. ej. array_combine con filas mal formadas) que antes provocaban un 500 crudo.
         try {
-            $response = Http::get($url);
+            $response = Http::timeout(120)
+                ->withOptions(['allow_redirects' => true])
+                ->get($url);
+
             if (!$response->successful()) {
-                Notification::make()->title('Error al descargar el CSV de la URL.')->danger()->send();
+                Notification::make()->title('Error al descargar el CSV de la URL (HTTP ' . $response->status() . ').')->danger()->send();
                 return;
             }
-            
+
             $csv = $response->body();
-            // Soporte para saltos de línea y parseo seguro con str_getcsv
-            $lines = explode(PHP_EOL, $csv);
-            
-            if (count($lines) < 2) {
+
+            // Normalizar TODO tipo de salto de línea (Windows \r\n, Mac clásico \r, Unix \n).
+            // Antes se usaba explode(PHP_EOL) que en el servidor sólo corta por \n
+            // y dejaba un \r colgando (o no cortaba nada con archivos \r).
+            $lines = preg_split('/\r\n|\r|\n/', $csv);
+
+            if (!is_array($lines) || count(array_filter($lines, fn ($l) => trim($l) !== '')) < 2) {
                 Notification::make()->title('El archivo parece estar vacío.')->warning()->send();
                 return;
             }
 
             // Normalizar encabezados (quitar acentos, tildes y pasar a minusculas)
-            $rawHeader = str_getcsv(array_shift($lines));
-            $header = array_map(function($h) {
-                $h = strtolower(iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', trim($h)));
-                return preg_replace('/[^a-z0-9]/', '_', $h);
+            $rawHeader = str_getcsv(array_shift($lines), ',', '"', '');
+            $header = array_map(function ($h) {
+                $h = trim((string) $h);
+                $ascii = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $h);
+                if ($ascii === false) {
+                    // Fallback si iconv//TRANSLIT no está disponible en el servidor
+                    $ascii = preg_replace('/[^\x20-\x7E]/', '', $h);
+                }
+                return preg_replace('/[^a-z0-9]/', '_', strtolower($ascii));
             }, $rawHeader);
-            
+
+            $headerCount = count($header);
             $groupedProducts = [];
 
             foreach ($lines as $line) {
                 if (trim($line) === '') continue;
-                $row = str_getcsv($line);
-                if (count($row) < count($header)) continue;
-                
+                $row = str_getcsv($line, ',', '"', '');
+
+                // Ajustar la fila EXACTAMENTE al ancho del encabezado:
+                // - si faltan columnas se rellenan con '' (antes se descartaba la fila entera)
+                // - si sobran columnas se recortan (antes array_combine lanzaba ValueError -> 500)
+                if (count($row) < $headerCount) {
+                    $row = array_pad($row, $headerCount, '');
+                } elseif (count($row) > $headerCount) {
+                    $row = array_slice($row, 0, $headerCount);
+                }
+
                 $data = array_combine($header, $row);
-                
+
                 $sku = trim($data['sku'] ?? '');
                 if (empty($sku)) continue;
 
@@ -255,9 +297,17 @@ class ProductSync extends Page implements HasForms
             }
             
             Notification::make()->title("¡Éxito! Se procesaron $count productos correctamente.")->success()->send();
-            
-        } catch (\Exception $e) {
-            Notification::make()->title('Error interno: ' . $e->getMessage())->danger()->send();
+
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('ProductSync runSync: ' . $e->getMessage(), [
+                'exception' => $e,
+            ]);
+            Notification::make()
+                ->title('Error interno durante la sincronización')
+                ->body(\Illuminate\Support\Str::limit($e->getMessage(), 300))
+                ->danger()
+                ->persistent()
+                ->send();
         }
     }
 
