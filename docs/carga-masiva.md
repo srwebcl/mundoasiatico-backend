@@ -54,8 +54,30 @@ Origen, Condición, Garantía
 ```
 
 Los encabezados se normalizan solos (minúsculas, sin tildes, espacios → `_`). La única
-columna **obligatoria es `SKU`**; una fila sin SKU se ignora. Varias filas con el mismo
-SKU se agrupan: la primera define el producto, las demás sólo agregan modelos compatibles.
+columna **obligatoria es `SKU`**; una fila sin SKU se ignora.
+
+### Un producto por fila (SKU repetible)
+
+**Cada fila del CSV es un producto propio**, aunque el SKU se repita. Dos filas con el
+mismo SKU pero distinto vehículo compatible → dos productos separados en el catálogo:
+`Bujías Jgo — Chery Tiggo 2` y `Bujías Jgo — Chery IQ`. El vehículo se agrega al nombre
+para diferenciar las fichas.
+
+- **Clave de identidad (`import_key`):** `sku + marca compatible + modelo compatible`
+  (normalizado). Es lo que usa el sincronizador para saber si una fila ya existe y
+  actualizarla en vez de duplicarla.
+- Si dos filas comparten esa clave (mismo SKU, mismo vehículo, sólo cambia el rango de
+  años o la cilindrada), se tratan como **un** producto y la última fila gana.
+- Los productos creados a mano en el panel tienen `import_key` vacío y **el importador
+  nunca los toca**.
+- **Primera sincronización tras este cambio:** un producto heredado (creado con el
+  esquema viejo, 1 por SKU) es *adoptado* por la primera fila de ese SKU en vez de
+  quedar huérfano. Conviene revisar el catálogo después de la primera corrida.
+
+> **Stock:** con este modelo, un SKU con stock 6 repartido en 5 filas se ve como 5
+> productos de stock 6 (30 unidades aparentes) y se venden por separado. Cada
+> re-sincronización vuelve a poner el valor de la planilla. Para control de inventario
+> real hay que implementar *stock compartido por SKU* (pendiente, ver §7 F4).
 
 > **Detalle importante:** el enlace tiene que ser el **CSV publicado**. Un enlace de
 > *carpeta* de Google Drive o el enlace normal de la hoja devuelven HTML, no datos →
@@ -75,6 +97,8 @@ SKU se agrupan: la primera define el producto, las demás sólo agregan modelos 
 - **Errores silenciosos.** Las filas mal formadas se saltan sin decir cuáles ni por qué.
 - **No borra ni desactiva.** Un producto que sacas de la planilla queda activo para siempre.
 - **Una sola pestaña.** Productos repartidos en varias hojas → consolidar a mano.
+- **Stock por fila, no por SKU.** Ver el recuadro de la §1: el inventario se infla cuando
+  un SKU aparece en varias filas.
 - **Precios como texto.** Se limpian con regex (`$40,000` → `40000`); formatos raros se
   pueden interpretar mal.
 - **Imágenes = paso manual separado**, depende de nombrar cada archivo con el SKU exacto.
@@ -234,13 +258,13 @@ columna `imagen_url` procesada en la cola.
 | **F1** | Estabilizar (hecho) | Fix del 500: captura de `\Throwable`, normalización de filas, límites de tiempo/memoria, mensajes claros ante enlaces inválidos. Verificar que exista el worker de cola. |
 | **F2** | Subida directa de archivo | Opción 1: `Importer` de Filament con la lógica actual portada, mapeo de columnas, cola y CSV de errores. Se deja de depender de «publicar en la web». |
 | **F3** | Imágenes por URL + cola | Columna `imagen_url` / `galeria`; descarga y conversión a WebP dentro del mismo import, en segundo plano. |
-| **F4** | Bajas y automatización | Decidir qué pasa con productos que salen de la planilla (desactivar vs. sin stock). Opcional: Sheets API + cron para sincronización automática. |
+| **F4** | Stock compartido, bajas y automatización | Stock por SKU (no por fila): al vender, descontar de todas las filas del mismo SKU, o llevar el stock en una tabla aparte por SKU. Decidir qué pasa con productos que salen de la planilla (desactivar vs. sin stock). Opcional: Sheets API + cron para sincronización automática. |
 
 ---
 
-## Anexo · Estado del fix del error 500 (2026-09-07)
+## Anexo · Cambios aplicados (2026-09-07)
 
-`ProductSync.php` ya incluye:
+### Fix del error 500
 
 - `catch (\Throwable)` en vez de `catch (\Exception)` — evita que `ValueError`/`Error`
   se propaguen como HTTP 500 en `/livewire/update`.
@@ -253,3 +277,16 @@ columna `imagen_url` procesada en la cola.
 - Detección de respuesta HTML (carpeta de Drive / link normal de la hoja) y de
   encabezado sin columna `SKU`, con mensaje explicativo.
 - Aviso (no «Éxito») cuando se procesan 0 productos.
+
+### Un producto por fila (SKU repetible)
+
+- Migración `2026_09_07_120000_products_allow_duplicate_sku`: quita el `UNIQUE` de
+  `products.sku`, agrega `products.import_key` (indexado) e índice normal en `sku`.
+- `ProductSync::runSync()` reescrito: agrupa por `import_key` (`sku|marca|modelo`), no por
+  SKU; crea/actualiza un producto por fila; slug único por fila; agrega el vehículo al
+  nombre; adopta productos heredados en la primera corrida; reporta
+  «Creados / Actualizados / Total».
+- `ProductSync::processImages()`: la foto de un SKU se asigna a **todos** los productos
+  con ese SKU.
+- `ProductResource`: se quita la validación `unique` del campo SKU.
+- Pendiente: stock compartido por SKU (§7 F4).

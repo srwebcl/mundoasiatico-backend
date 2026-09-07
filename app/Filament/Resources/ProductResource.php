@@ -60,7 +60,8 @@ class ProductResource extends Resource
                                         ->placeholder('ABC-123')
                                         ->required()
                                         ->maxLength(100)
-                                        ->unique(Product::class, 'sku', ignoreRecord: true)
+                                        // El SKU puede repetirse: un producto por fila del CSV
+                                        // (normalmente una por vehículo compatible).
                                         ->columnSpan(1),
                                 ]),
 

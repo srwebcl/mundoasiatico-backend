@@ -151,7 +151,10 @@ class ProductSync extends Page implements HasForms
                 return;
             }
 
-            $groupedProducts = [];
+            // UN PRODUCTO POR FILA: dos filas con el mismo SKU pero distinto vehículo
+            // compatible son dos productos distintos. La clave de identidad para
+            // re-importar es sku + marca compatible + modelo compatible.
+            $rows = [];
 
             foreach ($lines as $line) {
                 if (trim($line) === '') continue;
@@ -176,40 +179,38 @@ class ProductSync extends Page implements HasForms
                 $garantiaKey = collect(array_keys($data))->first(fn($k) => str_contains($k, 'garant'));
                 $origenKey = collect(array_keys($data))->first(fn($k) => str_contains($k, 'origen'));
 
-                // Si es primera vez que vemos el SKU, guardamos los datos base
-                if (!isset($groupedProducts[$sku])) {
-                    $groupedProducts[$sku] = [
-                        'producto' => $data['producto'] ?? '',
-                        'descripcion' => $data['descripcion'] ?? '',
-                        'categoria' => $data['categoria'] ?? '',
-                        'marca_repuesto' => $data['marca_del_repuesto'] ?? '',
-                        'precio_venta' => $data['precio_venta'] ?? '0',
-                        'precio_oferta' => $data['precio_oferta'] ?? '0',
-                        'stock_actual' => $data['stock_actual'] ?? '0',
-                        'condicion' => $condicionKey ? trim($data[$condicionKey]) : '',
-                        'garantia' => $garantiaKey ? trim($data[$garantiaKey]) : '',
-                        'origen' => $origenKey ? trim($data[$origenKey]) : '',
-                        'modelos' => []
-                    ];
-                }
-
-                // Extraer modelos compatibles para este SKU
                 $marcaCompatible = trim($data['marca_compatible'] ?? '');
                 $modeloCompatible = trim($data['modelo_compatible'] ?? '');
                 $cilindrada = trim($data['cilindrada'] ?? '');
                 $anios = trim($data['anos_compatibles'] ?? '');
 
-                if (!empty($marcaCompatible) && !empty($modeloCompatible)) {
-                    $groupedProducts[$sku]['modelos'][] = [
-                        'marca' => $marcaCompatible,
-                        'modelo' => $modeloCompatible,
-                        'cilindrada' => $cilindrada,
-                        'anios' => $anios
-                    ];
-                }
+                $importKey = $sku . '|'
+                    . \Illuminate\Support\Str::slug($marcaCompatible) . '|'
+                    . \Illuminate\Support\Str::slug($modeloCompatible);
+
+                // Si la misma clave aparece varias veces en el archivo, la última fila
+                // gana en los campos escalares (nombre, precio, stock...).
+                $rows[$importKey] = [
+                    'sku' => $sku,
+                    'import_key' => $importKey,
+                    'producto' => $data['producto'] ?? '',
+                    'descripcion' => $data['descripcion'] ?? '',
+                    'categoria' => $data['categoria'] ?? '',
+                    'marca_repuesto' => $data['marca_del_repuesto'] ?? '',
+                    'precio_venta' => $data['precio_venta'] ?? '0',
+                    'precio_oferta' => $data['precio_oferta'] ?? '0',
+                    'stock_actual' => $data['stock_actual'] ?? '0',
+                    'condicion' => $condicionKey ? trim($data[$condicionKey]) : '',
+                    'garantia' => $garantiaKey ? trim($data[$garantiaKey]) : '',
+                    'origen' => $origenKey ? trim($data[$origenKey]) : '',
+                    'marca_compatible' => $marcaCompatible,
+                    'modelo_compatible' => $modeloCompatible,
+                    'cilindrada' => $cilindrada,
+                    'anios' => $anios,
+                ];
             }
-            
-            if (empty($groupedProducts)) {
+
+            if (empty($rows)) {
                 Notification::make()
                     ->title('No se importó ningún producto')
                     ->body('Se leyó el archivo pero ninguna fila tenía un SKU válido. '
@@ -220,8 +221,14 @@ class ProductSync extends Page implements HasForms
                 return;
             }
 
-            $count = 0;
-            foreach ($groupedProducts as $sku => $productData) {
+            $created = 0;
+            $updated = 0;
+            $usedSlugs = [];
+            $adoptedLegacyIds = [];
+
+            foreach ($rows as $productData) {
+                $sku = $productData['sku'];
+
                 // 1. Marca del Repuesto
                 $brandId = null;
                 if (!empty($productData['marca_repuesto'])) {
@@ -232,7 +239,7 @@ class ProductSync extends Page implements HasForms
                     );
                     $brandId = $brand->id;
                 }
-                
+
                 // 2. Categoría
                 $catId = null;
                 if (!empty($productData['categoria'])) {
@@ -243,103 +250,139 @@ class ProductSync extends Page implements HasForms
                     );
                     $catId = $cat->id;
                 }
-                
+
                 // 3. Precios y Stock
                 $regularPrice = (int) preg_replace('/[^0-9]/', '', $productData['precio_venta']);
                 $wholesalePrice = (int) preg_replace('/[^0-9]/', '', $productData['precio_oferta']);
                 $stock = (int) preg_replace('/[^0-9]/', '', $productData['stock_actual']);
 
-                // 4. Construir Descripción Extendida
+                // 4. Vehículo compatible de ESTA fila (uno por producto)
+                $marcaCompatible = $productData['marca_compatible'];
+                $modeloCompatible = $productData['modelo_compatible'];
+                $vehiculo = trim($marcaCompatible . ' ' . $modeloCompatible);
+
+                // 5. Nombre visible: se agrega el vehículo para diferenciar las fichas
+                //    cuando el mismo SKU se repite para varios autos.
+                $baseName = trim($productData['producto']) ?: 'Sin nombre';
+                $displayName = $vehiculo !== '' ? ($baseName . ' — ' . $vehiculo) : $baseName;
+
+                // 6. Descripción extendida
                 $descExtra = [];
-                if (!empty($productData['origen'])) $descExtra[] = "Origen: " . $productData['origen'];
+                if (!empty($productData['origen']))    $descExtra[] = "Origen: " . $productData['origen'];
                 if (!empty($productData['condicion'])) $descExtra[] = "Condición: " . $productData['condicion'];
-                if (!empty($productData['garantia'])) $descExtra[] = "Garantía: " . $productData['garantia'];
+                if (!empty($productData['garantia']))  $descExtra[] = "Garantía: " . $productData['garantia'];
+                if (!empty($productData['cilindrada'])) $descExtra[] = "Cilindrada: " . $productData['cilindrada'];
+                if ($vehiculo !== '')                   $descExtra[] = "Compatible con: " . $vehiculo
+                    . (!empty($productData['anios']) ? " ({$productData['anios']})" : '');
 
-                $cilindradas = array_filter(array_column($productData['modelos'], 'cilindrada'));
-                if (!empty($cilindradas)) {
-                    $descExtra[] = "Cilindradas compatibles: " . implode(', ', array_unique($cilindradas));
-                }
-
-                $finalDescription = $productData['descripcion'] ?? '';
+                $finalDescription = trim($productData['descripcion'] ?? '');
                 if (!empty($descExtra)) {
-                    $finalDescription .= "\n\n" . implode("\n", $descExtra);
+                    $finalDescription = trim($finalDescription . "\n\n" . implode("\n", $descExtra));
                 }
 
-                // 5. Crear o Actualizar Producto
+                // 7. Buscar el producto por su clave de importación (NO por SKU: el SKU
+                //    puede repetirse).
+                $product = Product::withTrashed()->where('import_key', $productData['import_key'])->first();
+
+                // 7b. Primera sincronización tras habilitar SKU duplicado: adoptar en su
+                //     lugar un producto heredado (mismo SKU, todavía sin import_key) en
+                //     vez de crear uno nuevo y dejar el viejo huérfano. Sólo la primera
+                //     fila de cada SKU lo adopta; las siguientes crean productos nuevos.
+                if (! $product) {
+                    $legacy = Product::withTrashed()
+                        ->where('sku', $sku)
+                        ->whereNull('import_key')
+                        ->orderBy('id')
+                        ->first();
+                    if ($legacy && ! in_array($legacy->id, $adoptedLegacyIds, true)) {
+                        $product = $legacy;
+                        $adoptedLegacyIds[] = $legacy->id;
+                    }
+                }
+
+                // 8. Slug único y estable por fila
+                $slugBase = \Illuminate\Support\Str::slug($baseName . '-' . $sku . ($modeloCompatible !== '' ? '-' . $modeloCompatible : ''));
+                $slug = $slugBase;
+                $n = 2;
+                while (
+                    isset($usedSlugs[$slug])
+                    || Product::withTrashed()
+                        ->where('slug', $slug)
+                        ->when($product, fn ($q) => $q->where('id', '!=', $product->id))
+                        ->exists()
+                ) {
+                    $slug = $slugBase . '-' . $n++;
+                }
+                $usedSlugs[$slug] = true;
+
                 $productAttributes = [
-                    'name' => $productData['producto'] ?: 'Sin nombre',
-                    'slug' => \Illuminate\Support\Str::slug(($productData['producto'] ?: 'producto') . '-' . $sku),
-                    'description' => trim($finalDescription),
-                    'regular_price' => $regularPrice,
-                    'wholesale_price' => $wholesalePrice,
-                    'stock' => $stock,
-                    'brand_id' => $brandId,
-                    'category_id' => $catId,
+                    'name'           => $displayName,
+                    'slug'           => $slug,
+                    'description'    => $finalDescription,
+                    'regular_price'  => $regularPrice,
+                    'wholesale_price'=> $wholesalePrice,
+                    'stock'          => $stock,
+                    'brand_id'       => $brandId,
+                    'category_id'    => $catId,
+                    'import_key'     => $productData['import_key'],
                 ];
 
-                $product = Product::withTrashed()->where('sku', $sku)->first();
-                
                 if ($product) {
                     $product->update($productAttributes);
                     if ($product->trashed()) {
                         $product->restore();
                     }
+                    $updated++;
                 } else {
                     $product = Product::create(array_merge(['sku' => $sku], $productAttributes));
+                    $created++;
                 }
 
-                // 6. Vincular Modelos Compatibles
-                $carModelIdsToSync = [];
-                foreach ($productData['modelos'] as $mod) {
-                    // Buscar o crear la Marca de Auto (Chery, Great Wall, etc)
-                    $carBrandSlug = \Illuminate\Support\Str::slug($mod['marca']);
+                // 9. Vincular el modelo compatible de esta fila
+                if ($marcaCompatible !== '' && $modeloCompatible !== '') {
                     $carBrand = Brand::firstOrCreate(
-                        ['slug' => $carBrandSlug],
-                        ['name' => $mod['marca'], 'is_active' => true]
+                        ['slug' => \Illuminate\Support\Str::slug($marcaCompatible)],
+                        ['name' => $marcaCompatible, 'is_active' => true]
                     );
 
-                    // Parsear años (ej: "2016 - 2017")
                     $yearStart = null;
                     $yearEnd = null;
-                    if (!empty($mod['anios'])) {
-                        preg_match_all('/\d{4}/', $mod['anios'], $matches);
+                    if (!empty($productData['anios'])) {
+                        preg_match_all('/\d{4}/', $productData['anios'], $matches);
                         if (count($matches[0]) >= 2) {
                             $yearStart = $matches[0][0];
                             $yearEnd = $matches[0][1];
-                        } elseif (count($matches[0]) == 1) {
+                        } elseif (count($matches[0]) === 1) {
                             $yearStart = $matches[0][0];
                         }
                     }
 
-                    // Buscar o crear el Modelo de Auto buscando por SLUG, no por nombre
-                    $carModelSlug = \Illuminate\Support\Str::slug($mod['marca'] . '-' . $mod['modelo']);
                     $carModel = \App\Models\CarModel::firstOrCreate(
-                        ['slug' => $carModelSlug],
+                        ['slug' => \Illuminate\Support\Str::slug($marcaCompatible . '-' . $modeloCompatible)],
                         [
-                            'name' => $mod['modelo'],
+                            'name' => $modeloCompatible,
                             'brand_id' => $carBrand->id,
                             'is_active' => true,
                             'year_start' => $yearStart,
-                            'year_end' => $yearEnd
+                            'year_end' => $yearEnd,
                         ]
                     );
-                    
-                    // Si el excel tiene años específicos y el modelo existente los tenía nulos, los actualizamos
+
                     if ($yearStart && !$carModel->year_start) {
                         $carModel->update(['year_start' => $yearStart, 'year_end' => $yearEnd]);
                     }
 
-                    $carModelIdsToSync[] = $carModel->id;
+                    $product->carModels()->sync([$carModel->id]);
+                } else {
+                    $product->carModels()->sync([]);
                 }
-
-                if (!empty($carModelIdsToSync)) {
-                    $product->carModels()->sync(array_unique($carModelIdsToSync));
-                }
-
-                $count++;
             }
-            
-            Notification::make()->title("¡Éxito! Se procesaron $count productos correctamente.")->success()->send();
+
+            Notification::make()
+                ->title('Sincronización completa')
+                ->body("Creados: {$created} · Actualizados: {$updated} · Total de filas: " . count($rows))
+                ->success()
+                ->send();
 
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('ProductSync runSync: ' . $e->getMessage(), [
@@ -433,8 +476,10 @@ class ProductSync extends Page implements HasForms
                 }
             }
             
-            $product = Product::where('sku', $sku)->first();
-            if (!$product) {
+            // El SKU puede corresponder a varios productos (uno por vehículo compatible):
+            // la misma foto se asigna a todos.
+            $products = Product::where('sku', $sku)->get();
+            if ($products->isEmpty()) {
                 $notFound++;
                 continue;
             }
@@ -501,15 +546,17 @@ class ProductSync extends Page implements HasForms
                 imagewebp($image, $destPath, 80);
                 imagedestroy($image);
                 
-                // Actualizar producto en BD (Imagen Principal vs Galería)
-                if ($isGallery) {
-                    $gallery = is_array($product->gallery) ? $product->gallery : [];
-                    $gallery[] = $newFilename;
-                    $product->update(['gallery' => array_values(array_unique($gallery))]);
-                } else {
-                    $product->update(['image' => $newFilename]);
+                // Actualizar TODOS los productos con este SKU (Imagen Principal vs Galería)
+                foreach ($products as $product) {
+                    if ($isGallery) {
+                        $gallery = is_array($product->gallery) ? $product->gallery : [];
+                        $gallery[] = $newFilename;
+                        $product->update(['gallery' => array_values(array_unique($gallery))]);
+                    } else {
+                        $product->update(['image' => $newFilename]);
+                    }
                 }
-                
+
                 $processed++;
                 
             } catch (\Throwable $e) {
