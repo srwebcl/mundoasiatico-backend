@@ -96,6 +96,24 @@ class ProductSync extends Page implements HasForms
 
             $csv = $response->body();
 
+            // El usuario suele pegar un enlace de carpeta de Google Drive o el enlace
+            // normal de la hoja (que devuelven una página HTML, no un CSV).
+            $contentType = strtolower($response->header('Content-Type') ?? '');
+            $looksLikeHtml = str_contains($contentType, 'text/html')
+                || preg_match('/^\s*<(?:!doctype|html|head|body)/i', $csv);
+
+            if ($looksLikeHtml) {
+                Notification::make()
+                    ->title('Ese enlace no es un CSV')
+                    ->body('Parece un enlace normal de Google Drive/Sheets. En la hoja de cálculo ve a '
+                        . 'Archivo → Compartir → Publicar en la web → formato "Valores separados por comas (.csv)" '
+                        . 'y pega esa URL (termina en /pub?output=csv o /export?format=csv).')
+                    ->danger()
+                    ->persistent()
+                    ->send();
+                return;
+            }
+
             // Normalizar TODO tipo de salto de línea (Windows \r\n, Mac clásico \r, Unix \n).
             // Antes se usaba explode(PHP_EOL) que en el servidor sólo corta por \n
             // y dejaba un \r colgando (o no cortaba nada con archivos \r).
@@ -119,6 +137,20 @@ class ProductSync extends Page implements HasForms
             }, $rawHeader);
 
             $headerCount = count($header);
+
+            // Sin columna SKU no se puede importar nada (probable link equivocado o
+            // separador distinto a la coma).
+            if (!in_array('sku', $header, true)) {
+                Notification::make()
+                    ->title('No se encontró la columna "SKU"')
+                    ->body('Encabezados detectados: ' . implode(', ', array_slice($header, 0, 20))
+                        . '. Verifica que el enlace sea el CSV publicado de la hoja correcta y que use coma como separador.')
+                    ->danger()
+                    ->persistent()
+                    ->send();
+                return;
+            }
+
             $groupedProducts = [];
 
             foreach ($lines as $line) {
@@ -177,6 +209,17 @@ class ProductSync extends Page implements HasForms
                 }
             }
             
+            if (empty($groupedProducts)) {
+                Notification::make()
+                    ->title('No se importó ningún producto')
+                    ->body('Se leyó el archivo pero ninguna fila tenía un SKU válido. '
+                        . 'Revisa que la hoja publicada sea la correcta y tenga datos bajo la columna SKU.')
+                    ->warning()
+                    ->persistent()
+                    ->send();
+                return;
+            }
+
             $count = 0;
             foreach ($groupedProducts as $sku => $productData) {
                 // 1. Marca del Repuesto
