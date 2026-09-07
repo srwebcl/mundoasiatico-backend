@@ -187,6 +187,25 @@ class ProductSync extends Page implements HasForms
             $kPrecioVenta = $kPrecioVenta ?: $kPrecioOferta;
             $kPrecioOferta = $kPrecioOferta ?: $kPrecioVenta;
 
+            // ¿La planilla trae columnas dedicadas de vehículo compatible?
+            // Si NO, se extrae del texto del nombre: "... COMPATIBLE CON <MARCA> Y <MODELO>".
+            $hasDedicatedVehicleCols = ($kMarcaComp !== null || $kModeloComp !== null);
+
+            $extractVehicle = function (string $text): array {
+                $t = trim(preg_replace('/\s+/', ' ', $text));
+                if (! preg_match('/^(.*?)\bcompatible\s+con\s+(.+)$/i', $t, $m)) {
+                    return ['marca' => '', 'modelo' => '', 'nombre' => $t];
+                }
+                $nombreLimpio = trim($m[1]) !== '' ? trim($m[1]) : $t;
+                $resto = trim($m[2]);
+                // El primer " Y " separa la marca del modelo (marcas de 2 palabras OK:
+                // "GREAT WALL Y HAVAL H3", "GAC GONOW Y WAY 1.3CC").
+                if (preg_match('/^(.*?)\s+Y\s+(.+)$/i', $resto, $mm)) {
+                    return ['marca' => trim($mm[1]), 'modelo' => trim($mm[2]), 'nombre' => $nombreLimpio];
+                }
+                return ['marca' => $resto, 'modelo' => '', 'nombre' => $nombreLimpio];
+            };
+
             $val = fn (array $data, ?string $key) => $key !== null ? trim((string) ($data[$key] ?? '')) : '';
 
             // PRIMERA PASADA: datos base por SKU (primer valor NO vacío que aparezca).
@@ -249,8 +268,24 @@ class ProductSync extends Page implements HasForms
 
                 $resolve = fn (string $field) => $f[$field] !== '' ? $f[$field] : $base[$field];
 
-                $marcaCompatible  = $f['marca_compatible'];
-                $modeloCompatible = $f['modelo_compatible'];
+                $nombreFila = $resolve('producto');
+                $descFila   = $resolve('descripcion');
+
+                if ($hasDedicatedVehicleCols) {
+                    $marcaCompatible  = $f['marca_compatible'];
+                    $modeloCompatible = $f['modelo_compatible'];
+                    $nombreVisible    = $nombreFila;
+                    $nombreParaSlug   = $nombreFila;
+                    $appendVehiculo   = true;
+                } else {
+                    // Extraer "COMPATIBLE CON X Y Z" del nombre (o de la descripción).
+                    $ex = $extractVehicle($nombreFila !== '' ? $nombreFila : $descFila);
+                    $marcaCompatible  = $ex['marca'];
+                    $modeloCompatible = $ex['modelo'];
+                    $nombreVisible    = $nombreFila !== '' ? $nombreFila : $ex['nombre']; // se respeta el nombre de la planilla
+                    $nombreParaSlug   = $ex['nombre'];
+                    $appendVehiculo   = false; // el nombre ya incluye el vehículo
+                }
 
                 $importKey = $sku . '|'
                     . \Illuminate\Support\Str::slug($marcaCompatible) . '|'
@@ -259,8 +294,10 @@ class ProductSync extends Page implements HasForms
                 $rows[$importKey] = [
                     'sku'            => $sku,
                     'import_key'     => $importKey,
-                    'producto'       => $resolve('producto'),
-                    'descripcion'    => $resolve('descripcion'),
+                    'producto'       => $nombreVisible,
+                    'producto_slug'  => $nombreParaSlug,
+                    'append_vehiculo'=> $appendVehiculo,
+                    'descripcion'    => $descFila,
                     'categoria'      => $resolve('categoria'),
                     'marca_repuesto' => $resolve('marca_repuesto'),
                     'precio_venta'   => $resolve('precio_venta'),
@@ -336,10 +373,15 @@ class ProductSync extends Page implements HasForms
                 $modeloCompatible = $productData['modelo_compatible'];
                 $vehiculo = trim($marcaCompatible . ' ' . $modeloCompatible);
 
-                // 5. Nombre visible: se agrega el vehículo para diferenciar las fichas
-                //    cuando el mismo SKU se repite para varios autos.
+                // 5. Nombre visible. Si la planilla trae el vehículo en columnas
+                //    aparte, se agrega al nombre para diferenciar las fichas del mismo
+                //    SKU. Si el vehículo venía dentro del nombre ("... COMPATIBLE CON
+                //    CHERY Y TIGGO 2"), se respeta el nombre tal cual.
                 $baseName = trim($productData['producto']) ?: 'Sin nombre';
-                $displayName = $vehiculo !== '' ? ($baseName . ' — ' . $vehiculo) : $baseName;
+                $displayName = ($productData['append_vehiculo'] && $vehiculo !== '')
+                    ? ($baseName . ' — ' . $vehiculo)
+                    : $baseName;
+                $slugSource = trim($productData['producto_slug'] ?? '') ?: $baseName;
 
                 // 6. Descripción extendida
                 $descExtra = [];
@@ -347,7 +389,8 @@ class ProductSync extends Page implements HasForms
                 if (!empty($productData['condicion'])) $descExtra[] = "Condición: " . $productData['condicion'];
                 if (!empty($productData['garantia']))  $descExtra[] = "Garantía: " . $productData['garantia'];
                 if (!empty($productData['cilindrada'])) $descExtra[] = "Cilindrada: " . $productData['cilindrada'];
-                if ($vehiculo !== '')                   $descExtra[] = "Compatible con: " . $vehiculo
+                // Sólo si el vehículo NO venía ya escrito en el nombre/descripción.
+                if ($productData['append_vehiculo'] && $vehiculo !== '') $descExtra[] = "Compatible con: " . $vehiculo
                     . (!empty($productData['anios']) ? " ({$productData['anios']})" : '');
 
                 $finalDescription = trim($productData['descripcion'] ?? '');
@@ -376,7 +419,7 @@ class ProductSync extends Page implements HasForms
                 }
 
                 // 8. Slug único y estable por fila
-                $slugBase = \Illuminate\Support\Str::slug($baseName . '-' . $sku . ($modeloCompatible !== '' ? '-' . $modeloCompatible : ''));
+                $slugBase = \Illuminate\Support\Str::slug($slugSource . '-' . $sku . ($modeloCompatible !== '' ? '-' . $modeloCompatible : ''));
                 $slug = $slugBase;
                 $n = 2;
                 while (

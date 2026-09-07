@@ -60,6 +60,20 @@ mayorista; `Stock`, `Existencia`, `Cantidad` → stock; etc. La única columna
 **obligatoria es `SKU`**; una fila sin SKU se ignora. Si no se detecta ninguna columna
 de precio, el importador lo avisa y lista los encabezados que encontró.
 
+### Vehículo compatible dentro del nombre
+
+Si la planilla **no** tiene columnas `Marca Compatible` / `Modelo Compatible`, el
+importador las extrae del texto del nombre con el patrón
+`… COMPATIBLE CON <MARCA> Y <MODELO>`:
+
+- `BUJIAS PUNTA IRIDIUM COMPATIBLE CON CHERY Y TIGGO 2` → marca `CHERY`, modelo `TIGGO 2`.
+- Marcas de dos palabras funcionan: `GREAT WALL Y HAVAL H3`, `GAC GONOW Y WAY 1.3CC`
+  (corta en el **primer** ` Y `).
+- En este caso el nombre del producto se respeta **tal cual** viene en la planilla
+  (ya incluye el vehículo); no se le agrega nada.
+- Si hay columnas dedicadas, se usan esas y el vehículo se **agrega** al nombre
+  (`Bujías Jgo — Chery Tiggo 2`).
+
 ### Datos que se repiten por SKU
 
 Estas planillas suelen llenar los datos del producto (nombre, precio, categoría, stock…)
