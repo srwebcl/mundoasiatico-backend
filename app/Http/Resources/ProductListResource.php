@@ -27,6 +27,7 @@ class ProductListResource extends JsonResource
             'is_wholesale'    => $isWholesale,
             'stock'           => $this->stock,
             'in_stock'        => $this->stock > 0,
+            'is_featured'     => $this->is_featured,
             'category'        => [
                 'id'   => $this->category?->id,
                 'name' => $this->category?->name,

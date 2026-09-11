@@ -98,6 +98,27 @@ class ProductController extends Controller
     }
 
     /**
+     * GET /api/products/featured
+     * Productos marcados "Destacar en Portada" para la vitrina del inicio.
+     */
+    public function featured(Request $request): JsonResponse
+    {
+        $limit = min((int) $request->get('limit', 8), 20);
+
+        $products = Product::query()
+            ->active()
+            ->where('is_featured', true)
+            ->with(['category', 'brand'])
+            ->latest()
+            ->take($limit)
+            ->get();
+
+        return response()->json([
+            'data' => ProductListResource::collection($products),
+        ]);
+    }
+
+    /**
      * GET /api/products/{slug}
      * Detalle completo del producto.
      */
