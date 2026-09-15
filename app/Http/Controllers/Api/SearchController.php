@@ -28,27 +28,30 @@ class SearchController extends Controller
             ]);
         }
 
-        $likeTerm = '%' . $term . '%';
+        // Palabras del término, para que "gran tiggo chery" encuentre "Chery Grand Tiggo"
+        // sin importar el orden (misma lógica que Product::scopeSearch).
+        $words = preg_split('/[\s,]+/', trim($term), -1, PREG_SPLIT_NO_EMPTY);
 
         // 1. Buscar Modelos de Autos (unidos a su marca)
-        $carModels = CarModel::with('brand')
-            ->where('name', 'LIKE', $likeTerm)
-            ->orWhereHas('brand', function ($q) use ($likeTerm) {
-                $q->where('name', 'LIKE', $likeTerm);
-            })
-            ->take(5)
-            ->get()
-            ->map(function ($car) {
-                return [
-                    'id'    => $car->id,
-                    'name'  => $car->name,
-                    'slug'  => $car->slug,
-                    'brand' => $car->brand ? $car->brand->name : null,
-                ];
+        $carModels = CarModel::with('brand');
+        foreach ($words as $word) {
+            $like = '%' . $word . '%';
+            $carModels->where(function ($q) use ($like) {
+                $q->where('name', 'LIKE', $like)
+                  ->orWhereHas('brand', fn ($q2) => $q2->where('name', 'LIKE', $like));
             });
+        }
+        $carModels = $carModels->take(5)->get()->map(function ($car) {
+            return [
+                'id'    => $car->id,
+                'name'  => $car->name,
+                'slug'  => $car->slug,
+                'brand' => $car->brand ? $car->brand->name : null,
+            ];
+        });
 
         // 2. Buscar Categorías
-        $categories = Category::where('name', 'LIKE', $likeTerm)
+        $categories = Category::where('name', 'LIKE', '%' . $term . '%')
             ->where('is_active', true)
             ->take(3)
             ->get()
@@ -60,19 +63,11 @@ class SearchController extends Controller
                 ];
             });
 
-        // 3. Buscar Repuestos (Productos)
+        // 3. Buscar Repuestos (Productos) — misma búsqueda "inteligente" multi-palabra
+        // que usa el filtro del catálogo (Product::scopeSearch), para que ambos
+        // buscadores del sitio se comporten igual y reflejen siempre el catálogo actual.
         $products = Product::where('is_active', true)
-            ->where(function ($q) use ($likeTerm) {
-                $q->where('name', 'LIKE', $likeTerm)
-                  ->orWhere('sku', 'LIKE', $likeTerm)
-                  ->orWhere('description', 'LIKE', $likeTerm)
-                  ->orWhereHas('carModels', function ($q2) use ($likeTerm) {
-                      $q2->where('name', 'LIKE', $likeTerm)
-                         ->orWhereHas('brand', function ($q3) use ($likeTerm) {
-                             $q3->where('name', 'LIKE', $likeTerm);
-                         });
-                  });
-            })
+            ->search($term)
             ->with(['category', 'brand', 'carModels.brand'])
             ->take(6)
             ->get();

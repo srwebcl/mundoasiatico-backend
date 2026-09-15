@@ -56,6 +56,38 @@ class Product extends Model
         return $query->where('stock', '>', 0);
     }
 
+    /**
+     * Búsqueda "inteligente" por texto libre: separa el término en palabras y exige
+     * que CADA palabra aparezca en algún lugar (nombre, SKU, descripción, categoría,
+     * marca del repuesto o marca/modelo del vehículo compatible), sin importar el
+     * orden ni en qué campo caiga cada una.
+     *
+     * Así "chery tiggo 2" encuentra "BUJIAS PUNTA IRIDIUM, CHERY TIGGO 2 JGO" y
+     * también "tiggo 2 chery" o "bujias chery" (antes se exigía una única frase
+     * literal y en el mismo orden en un solo campo).
+     */
+    public function scopeSearch(Builder $query, ?string $term): Builder
+    {
+        $words = preg_split('/[\s,]+/', trim((string) $term), -1, PREG_SPLIT_NO_EMPTY);
+
+        foreach ($words as $word) {
+            $like = '%' . $word . '%';
+            $query->where(function (Builder $q) use ($like) {
+                $q->where('name', 'LIKE', $like)
+                  ->orWhere('sku', 'LIKE', $like)
+                  ->orWhere('description', 'LIKE', $like)
+                  ->orWhereHas('category', fn (Builder $q2) => $q2->where('name', 'LIKE', $like))
+                  ->orWhereHas('brand', fn (Builder $q2) => $q2->where('name', 'LIKE', $like))
+                  ->orWhereHas('carModels', function (Builder $q2) use ($like) {
+                      $q2->where('name', 'LIKE', $like)
+                         ->orWhereHas('brand', fn (Builder $q3) => $q3->where('name', 'LIKE', $like));
+                  });
+            });
+        }
+
+        return $query;
+    }
+
     // =========================================================================
     // Relaciones
     // =========================================================================

@@ -53,20 +53,9 @@ class ProductController extends Controller
             $query->where('regular_price', '<=', (int) $request->price_max);
         }
 
-        // ── Búsqueda por texto ────────────────────────────────────────────────
+        // ── Búsqueda por texto (multi-palabra, ver Product::scopeSearch) ────────
         if ($request->filled('search')) {
-            $term = '%' . $request->search . '%';
-            $query->where(function ($q) use ($term) {
-                $q->where('name', 'LIKE', $term)
-                  ->orWhere('sku', 'LIKE', $term)
-                  ->orWhere('description', 'LIKE', $term)
-                  ->orWhereHas('carModels', function ($q2) use ($term) {
-                      $q2->where('name', 'LIKE', $term)
-                         ->orWhereHas('brand', function ($q3) use ($term) {
-                             $q3->where('name', 'LIKE', $term);
-                         });
-                  });
-            });
+            $query->search($request->search);
         }
 
         // ── Ordenamiento ──────────────────────────────────────────────────────
