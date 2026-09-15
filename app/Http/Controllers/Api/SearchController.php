@@ -28,9 +28,10 @@ class SearchController extends Controller
             ]);
         }
 
-        // Palabras del término, para que "gran tiggo chery" encuentre "Chery Grand Tiggo"
+        // Palabras del término (sin las de relleno: "de", "para", etc.), para que
+        // "gran tiggo chery" o "modelo tiggo de chery" encuentren "Chery Grand Tiggo"
         // sin importar el orden (misma lógica que Product::scopeSearch).
-        $words = preg_split('/[\s,]+/', trim($term), -1, PREG_SPLIT_NO_EMPTY);
+        $words = Product::searchWords($term);
 
         // 1. Buscar Modelos de Autos (unidos a su marca)
         $carModels = CarModel::with('brand');

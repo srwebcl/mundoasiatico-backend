@@ -57,18 +57,45 @@ class Product extends Model
     }
 
     /**
+     * Palabras de relleno del español que la gente escribe de forma natural
+     * ("bujías PARA chery", "filtro DE aceite") pero que no aparecen en ningún
+     * producto. Si se buscaran igual que el resto, una sola de estas palabras
+     * bastaría para que la búsqueda completa no encuentre nada.
+     */
+    private static array $stopwords = [
+        'para', 'de', 'del', 'la', 'el', 'los', 'las', 'un', 'una', 'unos', 'unas',
+        'y', 'o', 'con', 'en', 'que', 'por', 'al', 'a', 'su',
+    ];
+
+    /**
+     * Separa un término de búsqueda en palabras "con sentido", quitando las de
+     * relleno. Si no queda ninguna (ej. el usuario solo escribió "de"), se usan
+     * las palabras originales para no devolver 0 resultados por accidente.
+     */
+    public static function searchWords(?string $term): array
+    {
+        $words = preg_split('/[\s,]+/', trim((string) $term), -1, PREG_SPLIT_NO_EMPTY);
+        $meaningful = array_values(array_filter(
+            $words,
+            fn ($w) => ! in_array(mb_strtolower($w), self::$stopwords, true)
+        ));
+
+        return $meaningful ?: $words;
+    }
+
+    /**
      * Búsqueda "inteligente" por texto libre: separa el término en palabras y exige
      * que CADA palabra aparezca en algún lugar (nombre, SKU, descripción, categoría,
      * marca del repuesto o marca/modelo del vehículo compatible), sin importar el
      * orden ni en qué campo caiga cada una.
      *
      * Así "chery tiggo 2" encuentra "BUJIAS PUNTA IRIDIUM, CHERY TIGGO 2 JGO" y
-     * también "tiggo 2 chery" o "bujias chery" (antes se exigía una única frase
-     * literal y en el mismo orden en un solo campo).
+     * también "tiggo 2 chery", "bujias chery" o "bujías PARA chery" (antes se
+     * exigía una única frase literal, en el mismo orden, en un solo campo).
      */
     public function scopeSearch(Builder $query, ?string $term): Builder
     {
-        $words = preg_split('/[\s,]+/', trim((string) $term), -1, PREG_SPLIT_NO_EMPTY);
+        $words = static::searchWords($term);
 
         foreach ($words as $word) {
             $like = '%' . $word . '%';
