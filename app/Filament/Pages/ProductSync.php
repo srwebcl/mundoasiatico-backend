@@ -206,6 +206,48 @@ class ProductSync extends Page implements HasForms
                 return ['marca' => $resto, 'modelo' => '', 'nombre' => $nombreLimpio];
             };
 
+            // Formato "definitivo" acordado con el negocio: NOMBRE = "PRODUCTO, MARCA MODELO".
+            // Todo lo que va después de la PRIMERA coma es el vehículo compatible; debe
+            // existir (o crearse) en car-models. Para separar marca de modelo se usan las
+            // marcas YA registradas en la base (tabla brands), probando primero las de más
+            // de una palabra ("Great Wall", "Gac Gonow") para no cortarlas a la mitad.
+            $knownBrands = \App\Models\Brand::pluck('name')->filter()->unique()->values()->all();
+            usort($knownBrands, fn ($a, $b) => mb_strlen($b) <=> mb_strlen($a));
+
+            $cleanVehicleText = function (string $t): string {
+                $t = trim(rtrim(trim($t), " ,;."));
+                $t = preg_replace('/^con\s+/i', '', $t);  // "CON CHANGAN S100" -> "CHANGAN S100"
+                $t = preg_replace('/\s+jgo$/i', '', $t);  // "CHERY TIGGO 2 JGO" -> "CHERY TIGGO 2" (JGO = "en juego", es del producto)
+                return trim($t);
+            };
+
+            $startsWithBrand = function (string $text, string $brand): bool {
+                $len = mb_strlen($brand);
+                if (mb_strtoupper(mb_substr($text, 0, $len)) !== mb_strtoupper($brand)) return false;
+                $next = mb_substr($text, $len, 1);
+                return $next === '' || !preg_match('/[A-Za-z0-9]/', $next);
+            };
+
+            $matchBrandModel = function (string $text) use ($knownBrands, $startsWithBrand): array {
+                foreach ($knownBrands as $brand) {
+                    if ($startsWithBrand($text, $brand)) {
+                        return ['marca' => $brand, 'modelo' => trim(mb_substr($text, mb_strlen($brand)))];
+                    }
+                }
+                // La marca puede no estar al inicio del texto (ej. filas con la medida o la
+                // motorización primero: "2.0 TIGGO 250X225X46 CHERY TIGGO"): se busca la marca
+                // en cualquier parte y se toma la ÚLTIMA aparición como punto de corte.
+                foreach ($knownBrands as $brand) {
+                    $pos = mb_strripos($text, $brand);
+                    if ($pos !== false) {
+                        return ['marca' => $brand, 'modelo' => trim(mb_substr($text, $pos + mb_strlen($brand)))];
+                    }
+                }
+                // Ninguna marca conocida calzó: mejor esfuerzo (primera palabra = marca).
+                $parts = preg_split('/\s+/', trim($text), 2);
+                return ['marca' => $parts[0] ?? $text, 'modelo' => $parts[1] ?? ''];
+            };
+
             $val = fn (array $data, ?string $key) => $key !== null ? trim((string) ($data[$key] ?? '')) : '';
 
             // PRIMERA PASADA: datos base por SKU (primer valor NO vacío que aparezca).
@@ -278,13 +320,26 @@ class ProductSync extends Page implements HasForms
                     $nombreParaSlug   = $nombreFila;
                     $appendVehiculo   = true;
                 } else {
-                    // Extraer "COMPATIBLE CON X Y Z" del nombre (o de la descripción).
-                    $ex = $extractVehicle($nombreFila !== '' ? $nombreFila : $descFila);
-                    $marcaCompatible  = $ex['marca'];
-                    $modeloCompatible = $ex['modelo'];
-                    $nombreVisible    = $nombreFila !== '' ? $nombreFila : $ex['nombre']; // se respeta el nombre de la planilla
-                    $nombreParaSlug   = $ex['nombre'];
-                    $appendVehiculo   = false; // el nombre ya incluye el vehículo
+                    $source = $nombreFila !== '' ? $nombreFila : $descFila;
+
+                    if (str_contains($source, ',')) {
+                        // Formato definitivo: "PRODUCTO, MARCA MODELO"
+                        [$antesComa, $despuesComa] = explode(',', $source, 2);
+                        $productoBase = trim($antesComa) !== '' ? trim($antesComa) : $source;
+                        $bm = $matchBrandModel($cleanVehicleText($despuesComa));
+                        $marcaCompatible  = $bm['marca'];
+                        $modeloCompatible = $bm['modelo'];
+                        $nombreVisible    = $nombreFila !== '' ? $nombreFila : $source; // se respeta tal cual viene en la planilla
+                        $nombreParaSlug   = $productoBase;
+                    } else {
+                        // Formato antiguo de respaldo: "... COMPATIBLE CON X Y Z"
+                        $ex = $extractVehicle($source);
+                        $marcaCompatible  = $ex['marca'];
+                        $modeloCompatible = $ex['modelo'];
+                        $nombreVisible    = $nombreFila !== '' ? $nombreFila : $ex['nombre'];
+                        $nombreParaSlug   = $ex['nombre'];
+                    }
+                    $appendVehiculo = false; // el nombre ya incluye el vehículo (con coma o con "COMPATIBLE CON")
                 }
 
                 $importKey = $sku . '|'

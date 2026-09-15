@@ -63,16 +63,35 @@ de precio, el importador lo avisa y lista los encabezados que encontró.
 ### Vehículo compatible dentro del nombre
 
 Si la planilla **no** tiene columnas `Marca Compatible` / `Modelo Compatible`, el
-importador las extrae del texto del nombre con el patrón
-`… COMPATIBLE CON <MARCA> Y <MODELO>`:
+vehículo se extrae del texto de `NOMBRE` (o de `DESCRIPCION` si el nombre viene vacío).
+Hay dos formatos soportados:
 
-- `BUJIAS PUNTA IRIDIUM COMPATIBLE CON CHERY Y TIGGO 2` → marca `CHERY`, modelo `TIGGO 2`.
-- Marcas de dos palabras funcionan: `GREAT WALL Y HAVAL H3`, `GAC GONOW Y WAY 1.3CC`
-  (corta en el **primer** ` Y `).
-- En este caso el nombre del producto se respeta **tal cual** viene en la planilla
-  (ya incluye el vehículo); no se le agrega nada.
-- Si hay columnas dedicadas, se usan esas y el vehículo se **agrega** al nombre
-  (`Bujías Jgo — Chery Tiggo 2`).
+**Formato definitivo (coma) — el que usa la planilla actual:**
+
+`PRODUCTO, MARCA MODELO`. Todo lo que va **después de la primera coma** es el vehículo
+compatible:
+
+- `BUJIAS PUNTA IRIDIUM, CHERY TIGGO 2 JGO` → producto `BUJIAS PUNTA IRIDIUM`, marca
+  `Chery`, modelo `Tiggo 2`.
+- La marca se identifica comparando contra las marcas **ya registradas** en
+  `/admin/marcas` (tabla `brands`), probando primero las de dos palabras (`Great Wall`,
+  `Gac Gonow`) para no cortarlas a la mitad. Si el texto no calza con ninguna marca
+  conocida al inicio, se busca la marca en cualquier parte del texto (cubre filas donde
+  la medida o motorización va antes, ej. `2.0 TIGGO 250X225X46 CHERY TIGGO` → marca
+  `Chery`, modelo `Tiggo`). Si de plano no reconoce ninguna marca, usa la primera
+  palabra como marca (mejor esfuerzo).
+- Se limpian automáticamente dos "ruidos" frecuentes en el texto después de la coma:
+  un `CON ` inicial (`CON CHANGAN S100` → `Changan S100`) y un `JGO` final (`CHERY
+  TIGGO 2 JGO` → `Chery Tiggo 2`, porque "en juego" es un dato del producto, no del auto).
+- El **nombre del producto se respeta tal cual** viene en la planilla, coma incluida;
+  el sistema no lo reescribe. Solo el slug (URL) usa la parte antes de la coma.
+- Si la marca+modelo resultante no existe en `car_models`, se crea automáticamente.
+
+**Formato antiguo de respaldo:** `… COMPATIBLE CON <MARCA> Y <MODELO>` (sigue funcionando
+si una fila no tiene coma, por compatibilidad con planillas anteriores).
+
+Si hay columnas dedicadas `Marca Compatible` / `Modelo Compatible`, se usan esas en vez
+de leer el nombre, y el vehículo se **agrega** al nombre (`Bujías Jgo — Chery Tiggo 2`).
 
 ### Datos que se repiten por SKU
 
