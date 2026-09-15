@@ -85,9 +85,21 @@ class ProductSync extends Page implements HasForms
         // catch (\Throwable) captura además \Error, \TypeError y \ValueError
         // (p. ej. array_combine con filas mal formadas) que antes provocaban un 500 crudo.
         try {
+            // Google cachea el CSV publicado hasta 5 minutos (cabecera "Cache-Control:
+            // private, max-age=300"). Un parámetro único de por sí no elimina ese
+            // retraso (el cacheo es del lado de Google, no algo que controlemos), pero
+            // evita que un proxy/CDN intermedio adicional reutilice una respuesta vieja.
+            $fetchUrl = $url . (str_contains($url, '?') ? '&' : '?') . '_sync=' . time();
+
             $response = Http::timeout(120)
+                ->withHeaders([
+                    'Cache-Control' => 'no-cache, no-store, must-revalidate',
+                    'Pragma' => 'no-cache',
+                ])
                 ->withOptions(['allow_redirects' => true])
-                ->get($url);
+                ->get($fetchUrl);
+
+            $fetchedAt = now()->timezone('America/Santiago')->format('d-m-Y H:i:s');
 
             if (!$response->successful()) {
                 Notification::make()->title('Error al descargar el CSV de la URL (HTTP ' . $response->status() . ').')->danger()->send();
@@ -551,7 +563,11 @@ class ProductSync extends Page implements HasForms
                 }
             }
 
-            $resumen = "Creados: {$created} · Actualizados: {$updated} · Total de filas: " . count($rows);
+            // La hora de descarga ayuda a diagnosticar el retraso de Google al publicar
+            // (hasta 5 min): si acabas de editar hace menos de eso, esta sincronización
+            // pudo traer todavía la versión anterior del archivo.
+            $resumen = "Creados: {$created} · Actualizados: {$updated} · Total de filas: " . count($rows)
+                . " · Descargado: {$fetchedAt}";
 
             if (! $kPrecioVenta) {
                 Notification::make()
