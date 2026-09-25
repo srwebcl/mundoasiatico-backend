@@ -39,4 +39,10 @@ return [
         ],
     ],
 
+    // URL base del frontend (Next.js / Vercel). Usada para construir el
+    // "returnUrl" que se le entrega a Banchile/PlacetoPay al iniciar un pago.
+    // No existe config/app.php en este proyecto (Laravel 11 lo omite por
+    // defecto), así que este valor NO va bajo config('app.*').
+    'frontend_url' => env('FRONTEND_URL', 'https://mundoasiatico.cl'),
+
 ];

@@ -152,8 +152,11 @@ class CheckoutController extends Controller
                     ],
                 ],
                 'expiration' => now()->addHour()->format('c'),
-                // Agregamos ?token_ws= al final para no romper la lógica actual del frontend de Next.js
-                'returnUrl' => config('app.frontend_url') . '/checkout/return?token_ws=' . $reference,
+                // /exito ya sabe leer ?token_ws= y confirmar el pago contra
+                // GET /api/orders/{id} (ver frontend/src/app/exito/page.js).
+                // "/checkout/return" NO existe como página en el frontend: solo
+                // es el nombre del endpoint webhook (POST /api/checkout/return).
+                'returnUrl' => config('services.frontend_url') . '/exito?token_ws=' . $reference,
                 'ipAddress' => request()->ip() ?? '127.0.0.1',
                 'userAgent' => request()->userAgent() ?? 'MundoAsiatico/1.0',
             ];
