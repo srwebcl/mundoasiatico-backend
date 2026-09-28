@@ -152,11 +152,9 @@ class CheckoutController extends Controller
                     ],
                 ],
                 'expiration' => now()->addHour()->format('c'),
-                // /exito ya sabe leer ?token_ws= y confirmar el pago contra
-                // GET /api/orders/{id} (ver frontend/src/app/exito/page.js).
-                // "/checkout/return" NO existe como página en el frontend: solo
-                // es el nombre del endpoint webhook (POST /api/checkout/return).
-                'returnUrl' => config('services.frontend_url') . '/exito?token_ws=' . $reference,
+                // La página /checkout/return del frontend confirma el pago contra
+                // POST /api/checkout/return y luego redirige a /exito.
+                'returnUrl' => config('services.frontend_url') . '/checkout/return?token_ws=' . $reference,
                 'ipAddress' => request()->ip() ?? '127.0.0.1',
                 'userAgent' => request()->userAgent() ?? 'MundoAsiatico/1.0',
             ];
@@ -202,7 +200,7 @@ class CheckoutController extends Controller
     public function return(Request $request): JsonResponse
     {
         // El frontend pasará ?token_ws= como lo hacía antes, que ahora tiene la 'reference'
-        $reference = $request->input('token_ws') ?? $request->input('TBK_TOKEN');
+        $reference = $request->input('token_ws') ?? $request->input('TBK_TOKEN') ?? $request->input('reference');
 
         if (! $reference) {
             return response()->json(['message' => 'Referencia de pago no recibida.'], 400);
