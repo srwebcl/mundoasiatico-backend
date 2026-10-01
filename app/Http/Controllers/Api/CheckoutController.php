@@ -229,6 +229,14 @@ class CheckoutController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Referencia de pago no recibida.'], 200);
         }
 
+        // Validación de firma (solo registro, no bloquea): PlacetoPay documenta
+        // signature = SHA-256(requestId + status.status + status.date + secretKey).
+        // No se rechaza la notificación si no coincide (igual se re-verifica el pago
+        // directamente contra la API de Banchile más abajo, que es la fuente real de
+        // verdad), pero queda registrado para auditoría y para detectar notificaciones
+        // falsas o un secretKey desactualizado.
+        $this->logSignatureCheck($request, $reference);
+
         // A partir de aquí TODO queda bajo un único try/catch(\Throwable): una
         // excepción de base de datos, un \TypeError del SDK de PlacetoPay (que
         // catch (\Exception) NO captura) o cualquier otro error inesperado no debe
@@ -376,5 +384,43 @@ class CheckoutController extends Controller
             'baseUrl' => env('BANCHILE_URL', 'https://checkout.test.banchilepagos.cl'),
             'timeout' => 45,
         ]);
+    }
+
+    /**
+     * Calcula la firma esperada de la notificación (SHA-256(requestId + status.status
+     * + status.date + secretKey), según la documentación de PlacetoPay) y registra si
+     * coincide con la recibida. Nunca lanza ni bloquea: es solo auditoría.
+     */
+    private function logSignatureCheck(Request $request, string $reference): void
+    {
+        try {
+            $body = $request->all();
+            if (empty($body)) {
+                $decoded = json_decode($request->getContent(), true);
+                $body = is_array($decoded) ? $decoded : [];
+            }
+
+            $received = $body['signature'] ?? null;
+            if (! $received) {
+                return; // No venía firma (ej. la llamada vieja con solo token_ws): nada que validar.
+            }
+
+            $requestId = (string) ($body['requestId'] ?? '');
+            $status    = (string) ($body['status']['status'] ?? '');
+            $date      = (string) ($body['status']['date'] ?? '');
+            $secretKey = env('BANCHILE_SECRET_KEY', 'U87nG0kcCsjb61Mj');
+
+            $expected = hash('sha256', $requestId . $status . $date . $secretKey);
+            $clean    = str_replace('sha256:', '', (string) $received);
+            $valid    = hash_equals($expected, $clean);
+
+            Log::info('CheckoutController@return: verificación de firma', [
+                'reference' => $reference,
+                'valid'     => $valid,
+            ]);
+        } catch (\Throwable $e) {
+            // La verificación de firma nunca debe interrumpir el procesamiento del webhook.
+            Log::warning('CheckoutController@return: no se pudo verificar la firma: ' . $e->getMessage());
+        }
     }
 }
