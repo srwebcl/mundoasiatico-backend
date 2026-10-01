@@ -199,10 +199,27 @@ class CheckoutController extends Controller
      */
     public function return(Request $request): JsonResponse
     {
-        // El frontend pasará ?token_ws= como lo hacía antes, que ahora tiene la 'reference'
+        // El frontend pasa ?token_ws= (compatibilidad histórica); el webhook real de
+        // Banchile/PlacetoPay manda "reference" en el cuerpo JSON (ver su documentación:
+        // { status: {...}, requestId, reference, signature }).
         $reference = $request->input('token_ws') ?? $request->input('TBK_TOKEN') ?? $request->input('reference');
 
+        // Respaldo: si Banchile envía el cuerpo como JSON sin declarar
+        // "Content-Type: application/json", Laravel no lo parsea dentro de input() y
+        // $reference queda null aunque el campo sí venga en la petición. Se decodifica
+        // el cuerpo crudo a mano como último recurso.
         if (! $reference) {
+            $raw = json_decode($request->getContent(), true);
+            if (is_array($raw)) {
+                $reference = $raw['reference'] ?? $raw['token_ws'] ?? $raw['TBK_TOKEN'] ?? null;
+            }
+        }
+
+        if (! $reference) {
+            Log::warning('CheckoutController@return: referencia no recibida', [
+                'content_type' => $request->header('Content-Type'),
+                'body'         => $request->getContent(),
+            ]);
             return response()->json(['message' => 'Referencia de pago no recibida.'], 400);
         }
 
