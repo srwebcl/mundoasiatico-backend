@@ -215,19 +215,26 @@ class CheckoutController extends Controller
             }
         }
 
+        // Importante: PlacetoPay/Banchile espera SIEMPRE una respuesta HTTP 2xx para
+        // considerar la notificación entregada (ver su documentación de webhooks); el
+        // resultado real va en el campo "status" del cuerpo, no en el código HTTP. Un
+        // 4xx/5xx aquí hace que el banco marque la notificación como fallida, aunque
+        // para NOSOTROS sea un caso normal (ej. su propio ping de prueba con una
+        // referencia que nunca pasó por nuestro checkout).
         if (! $reference) {
             Log::warning('CheckoutController@return: referencia no recibida', [
                 'content_type' => $request->header('Content-Type'),
                 'body'         => $request->getContent(),
             ]);
-            return response()->json(['message' => 'Referencia de pago no recibida.'], 400);
+            return response()->json(['status' => 'error', 'message' => 'Referencia de pago no recibida.'], 200);
         }
 
         // Buscar la orden por la referencia guardada en transbank_token
         $order = Order::where('transbank_token', $reference)->first();
 
         if (! $order) {
-            return response()->json(['message' => 'Orden no encontrada.'], 404);
+            Log::info('CheckoutController@return: orden no encontrada para la referencia', ['reference' => $reference]);
+            return response()->json(['status' => 'not_found', 'message' => 'Orden no encontrada.'], 200);
         }
 
         // Si ya fue procesada, devolver éxito inmediato para no duplicar correos
@@ -326,7 +333,7 @@ class CheckoutController extends Controller
             return response()->json([
                 'status'  => 'error',
                 'message' => 'Error al validar el pago. Contacta soporte con tu orden #' . $order->id,
-            ], 502);
+            ], 200);
         }
     }
 
