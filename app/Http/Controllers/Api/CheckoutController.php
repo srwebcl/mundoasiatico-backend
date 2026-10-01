@@ -229,26 +229,31 @@ class CheckoutController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Referencia de pago no recibida.'], 200);
         }
 
-        // Buscar la orden por la referencia guardada en transbank_token
-        $order = Order::where('transbank_token', $reference)->first();
-
-        if (! $order) {
-            Log::info('CheckoutController@return: orden no encontrada para la referencia', ['reference' => $reference]);
-            return response()->json(['status' => 'not_found', 'message' => 'Orden no encontrada.'], 200);
-        }
-
-        // Si ya fue procesada, devolver éxito inmediato para no duplicar correos
-        if ($order->status === Order::STATUS_PAID) {
-            return response()->json([
-                'status'           => 'paid',
-                'order_id'         => $order->id,
-                'authorization_code' => $order->transbank_authorization_code,
-                'message'          => '¡Pago confirmado! Tu pedido está en proceso.',
-            ]);
-        }
-
-        // ── Consultar estado de transacción a Banchile Pagos ──────────────────────
+        // A partir de aquí TODO queda bajo un único try/catch(\Throwable): una
+        // excepción de base de datos, un \TypeError del SDK de PlacetoPay (que
+        // catch (\Exception) NO captura) o cualquier otro error inesperado no debe
+        // escapar como 500 — este endpoint siempre responde 200.
+        $order = null;
         try {
+            // Buscar la orden por la referencia guardada en transbank_token
+            $order = Order::where('transbank_token', $reference)->first();
+
+            if (! $order) {
+                Log::info('CheckoutController@return: orden no encontrada para la referencia', ['reference' => $reference]);
+                return response()->json(['status' => 'not_found', 'message' => 'Orden no encontrada.'], 200);
+            }
+
+            // Si ya fue procesada, devolver éxito inmediato para no duplicar correos
+            if ($order->status === Order::STATUS_PAID) {
+                return response()->json([
+                    'status'           => 'paid',
+                    'order_id'         => $order->id,
+                    'authorization_code' => $order->transbank_authorization_code,
+                    'message'          => '¡Pago confirmado! Tu pedido está en proceso.',
+                ]);
+            }
+
+            // ── Consultar estado de transacción a Banchile Pagos ──────────────────
             $placetopay = $this->getPlacetoPay();
             $response = $placetopay->query($order->banchile_request_id);
 
@@ -324,15 +329,19 @@ class CheckoutController extends Controller
                 }
             }
 
-        } catch (\Exception $e) {
-            Log::error('CheckoutController@return Banchile error: ' . $e->getMessage(), [
-                'requestId' => $order->banchile_request_id,
-                'order_id' => $order->id,
+        } catch (\Throwable $e) {
+            Log::error('CheckoutController@return error: ' . $e->getMessage(), [
+                'reference'  => $reference,
+                'order_id'   => $order?->id,
+                'request_id' => $order?->banchile_request_id,
+                'exception'  => get_class($e),
             ]);
 
             return response()->json([
                 'status'  => 'error',
-                'message' => 'Error al validar el pago. Contacta soporte con tu orden #' . $order->id,
+                'message' => $order
+                    ? 'Error al validar el pago. Contacta soporte con tu orden #' . $order->id
+                    : 'Error al validar el pago.',
             ], 200);
         }
     }
